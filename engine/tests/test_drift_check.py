@@ -124,5 +124,26 @@ class RemovedAgentsAreNotExpected(unittest.TestCase):
         self.assertIn("skill eksik: llm-wiki -> codex", result)
 
 
+@unittest.skipUnless(importlib.util.find_spec("yaml"), "needs a Python with PyYAML as the stand-in")
+class SerenaIsNotExpected(unittest.TestCase):
+    """The owner removed Serena from every agent (2026-10-24); its absence is not drift.
+
+    Why: Hermes' history held one Serena call and no symbol query, and with the hard-coded target
+    the watchdog reported "bileşen eksik: serena -> hermes" every day after the uninstall.
+    """
+
+    run_check = DriftCheckWithoutYaml.run_check
+
+    def test_missing_serena_is_not_a_finding(self):
+        out = self.run_check(hermes_python=True, drift={"agents": ["hermes", "antigravity"]})
+        self.assertNotIn("Traceback", out.stderr)
+        self.assertNotIn("serena", out.stdout.split("== SONUÇ ==")[-1])
+
+    def test_neighbouring_component_is_still_checked(self):
+        # Same data, same loop: the disposable Hermes enables honey without a plugins/honey folder.
+        out = self.run_check(hermes_python=True, drift={"agents": ["hermes", "antigravity"]})
+        self.assertIn("bileşen eksik: honey -> hermes", out.stdout.split("== SONUÇ ==")[-1])
+
+
 if __name__ == "__main__":
     unittest.main()

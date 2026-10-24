@@ -6,7 +6,7 @@ Answers three questions in one pass:
      (Claude's synced/, Codex's .system/): those are kept current by their own installer.
   2. Does any skill reference a local file that is missing?
   3. Do the pinned configuration values still hold (Hermes model routing, plugin scanning,
-     Codex routing through Headroom, wiki repo protection)?
+     any Codex config values named in `drift.expect`, wiki repo protection)?
 
 Exit code 1 when drift is found, so it can be wired into a cron/watchdog job.
 """
@@ -218,10 +218,11 @@ print("\n== 4) bileşen eşitliği (hedef duruma göre) ==")
 
 # Which tool is expected to have which component. Update TARGET when the intended parity
 # changes; anything outside it is reported as drift. The shared writing-style plugin is honey,
-# which replaced ponytail (no longer installed in any tool).
+# which replaced ponytail (no longer installed in any tool). Serena is deliberately absent: the owner
+# removed it from every agent on 2026-10-24 (one call and no symbol query in Hermes' history), so a
+# missing Serena is not drift. Do not restore it unless he installs Serena again.
 TARGET = {
     "honey": {"codex", "claude", "hermes"},
-    "serena": {"codex", "claude", "hermes"},
     "llm-wiki-mcp": {"codex", "claude", "hermes"},
 }
 claude_json = (HOME / ".claude.json").read_text(encoding="utf-8", errors="ignore") \
@@ -264,12 +265,6 @@ def presence(component: str, tool: str) -> bool:
         if tool == "claude":
             return '"llm-wiki"' in claude_json
         return "llm-wiki" in hermes_cfg
-    if component == "serena":
-        if tool == "codex":
-            return "[mcp_servers.serena]" in txt
-        if tool == "claude":
-            return "serena" in claude_json
-        return "serena" in hermes_cfg
     return False
 
 
@@ -449,12 +444,7 @@ if "--deep" in sys.argv:
         _g = sum(_out.count(w) for w in _good)
         _b = sum(_out.count(w) for w in _bad)
         print(f"  {_tool:8} sağlıklı={_g}  sorunlu={_b}")
-        if _tool == "claude":
-            _line = [l for l in _out.splitlines() if l.startswith("serena")]
-            if not _line or "Connected" not in _line[0]:
-                drift.append(f"serena bağlanamıyor (claude): {(_line[0][:90] if _line else 'satır yok')}")
-        if _tool == "hermes" and "serena" not in _out:
-            drift.append("hermes: serena MCP listede yok")
+        # No per-server Serena probe: Serena was removed from every agent (see TARGET).
 
 print("\n== SONUÇ ==")
 if drift:
