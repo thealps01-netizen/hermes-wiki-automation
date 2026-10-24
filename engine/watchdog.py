@@ -58,6 +58,8 @@ except wikiconfig.ConfigError as exc:
     raise SystemExit(1)
 
 AUDIT_DIR = wikiconfig.audit_dir(CFG)
+# Scripts run from the installed engine release; the data folder holds state, never engine code.
+ENGINE_DIR = Path(__file__).resolve().parent
 _GATES = CFG.get("gates") or {}
 STATE = AUDIT_DIR / "state.json"
 APP_STATE = wikiconfig.app_state(CFG)
@@ -402,7 +404,7 @@ def check_evidence_store() -> None:
                          f"(capture the code/doc with evidence_capture.py and cite its id)")
     if probs:
         alerts.append(f"kanıt deposu ({len(probs)} sorun): {probs[:3]} — ayrıntı ve düzeltme: "
-                      f"python {AUDIT_DIR / 'evidence_capture.py'} --verify")
+                      f"python {ENGINE_DIR / 'evidence_capture.py'} --verify")
 
 
 def check_evidence_staleness() -> None:
@@ -420,7 +422,7 @@ def check_evidence_staleness() -> None:
         alerts.append(f"sürüm değişti, {len(found)} kanıt artık kurulu sürümle uyuşmuyor: {found[:2]} — "
                       f"bu kaynaklardaki kararları yeni sürüme göre gözden geçir (kaynağı düzelt, "
                       f"kanıtı yeni commit ile yeniden yakala); liste: python "
-                      f"{AUDIT_DIR / 'evidence_capture.py'} --recheck")
+                      f"{ENGINE_DIR / 'evidence_capture.py'} --recheck")
 
 
 def check_harvest_coverage() -> None:
@@ -517,7 +519,7 @@ def main() -> int:
               + "\n".join(f"- {a}" for a in alerts)
               + f"\n\nBulgu geçmişi: {AUDIT_DIR / 'alerts.log'}\n"
                 f"Git durumu:   git -C {WIKI} status --short\n"
-                f"Tam denetim:  python {AUDIT_DIR / 'wiki_audit.py'}")
+                f"Tam denetim:  python {ENGINE_DIR / 'wiki_audit.py'}")
         return 1
     print(f"✔ Wiki watchdog — {status}")
     return 0

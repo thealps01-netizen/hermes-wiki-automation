@@ -69,6 +69,8 @@ except wikiconfig.ConfigError as exc:
     raise SystemExit(1)
 
 AUDIT_DIR = wikiconfig.audit_dir(CFG)
+# Scripts run from the installed engine release; the data folder holds state, never engine code.
+ENGINE_DIR = Path(__file__).resolve().parent
 _GATES = CFG.get("gates") or {}
 STATE = AUDIT_DIR / "state.json"
 LOCK = AUDIT_DIR / "auto-commit.lock"
@@ -360,7 +362,7 @@ def _commit_index(pages: list[Path], baseline_head, index_file: Path, skip_hooks
         f"Pages on disk: {len(pages)} ({n_stems} unique stems, {len(dups)} duplicate stem(s), "
         f"{len(dangling)} unresolved link target(s)).",
         "",
-        "Committed by ~/.llmwiki-audit/wiki_autocommit.py (the desktop app generates pages but never commits).",
+        "Committed by the wiki automation engine's wiki_autocommit.py (the desktop app generates pages but never commits).",
     ]
     cm = git("commit", *(["--no-verify"] if skip_hooks else []), "-m", "\n".join(msg), index_file=index_file)
     if cm.returncode != 0:
@@ -397,7 +399,7 @@ def main() -> int:
         print(f"!! wiki auto-commit: {len(alerts)} safety alert(s) - nothing committed")
         for a in alerts:
             print(f"   - {a}")
-        print(f"   inspect: python {AUDIT_DIR}/wiki_audit.py  |  git -C {WIKI} status --short")
+        print(f"   inspect: python {ENGINE_DIR / 'wiki_audit.py'}  |  git -C {WIKI} status --short")
         return 1
 
     blocked = None

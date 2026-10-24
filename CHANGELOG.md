@@ -3,6 +3,16 @@
 Notable changes to the Wiki Automation panel. The version is carried in three places — `plugin.yaml`,
 `dashboard/manifest.json` and the top heading below — and the static audit fails when they disagree.
 
+## 2.8.1
+
+Engine `b6b4382`.
+
+### Fixed
+* **Commands in engine reports point at the engine.** Watch Dog, Auto-Commit and Ingest Watch printed
+  commands such as `python <data folder>/wiki_audit.py`, but the data folder holds state only; the
+  scripts live in the installed engine release. The commands now name the release folder, and a test
+  refuses any printed command that names a script in the data folder.
+
 ## 2.8.0
 
 Engine `28a7a9b`: engine `85688e4`, now kept in this repository, with its README updated for that home

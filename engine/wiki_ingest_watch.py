@@ -62,6 +62,8 @@ except wikiconfig.ConfigError as exc:
     raise SystemExit(1)
 
 AUDIT_DIR = wikiconfig.audit_dir(CFG)
+# Scripts run from the installed engine release; the data folder holds state, never engine code.
+ENGINE_DIR = Path(__file__).resolve().parent
 _GATES = CFG.get("gates") or {}
 RAW = WIKI / "raw" / "sources"
 CACHE = WIKI / ".llm-wiki" / "ingest-cache.json"
@@ -208,7 +210,7 @@ def main() -> int:
         if rescanned:
             print(f"   rescan requested for: {', '.join(rescanned)}")
         print(f"   app running? Source Watch enabled? extension in includeExtensions? "
-              f"then: python {AUDIT_DIR}/wiki_audit.py {WIKI}")
+              f"then: python {ENGINE_DIR / 'wiki_audit.py'} {WIKI}")
         return 1
     finally:
         LOCK.unlink(missing_ok=True)
