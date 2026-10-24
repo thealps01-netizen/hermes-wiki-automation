@@ -1,0 +1,6 @@
+# Metro (2.5.0) gates write these mirrors from desktop/plugin.js on every run (render_metro.mjs,
+# preview.mjs live pages). They carry this machine's paths; rebuild them with the gates.
+sdk-metro-stub.mjs
+plugin-metro-under-test.mjs
+preview-metro-*.html
+.cache/

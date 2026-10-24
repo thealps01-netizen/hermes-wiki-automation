@@ -1,0 +1,14 @@
+{
+  "artifact": "engine",
+  "python_min": [
+    3,
+    11
+  ],
+  "revision": "28a7a9b3fa96be0b2251208302fb4e4ce47a0dcc",
+  "schema": 2,
+  "sha256": "28a7a9b3fa96be0b2251208302fb4e4ce47a0dcc0f8d3365550fe921fd39a084",
+  "workflow_schema": {
+    "max": 1,
+    "min": 1
+  }
+}

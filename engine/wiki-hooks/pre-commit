@@ -1,0 +1,56 @@
+#!/bin/sh
+# LLM Wiki commit guard. The wiki automation engine installs it (install.py -> <wiki>/.githooks/).
+# Edit it in the engine's wiki-hooks/ folder, never in the wiki copy.
+#
+# Why: the app's graph resolves [[links]] by file stem only, but some generators write
+# folder-qualified links ([[concepts/x]]) that create no graph edge. This hook rewrites those
+# links to stem form, but only in files that are already staged, and it re-stages only those
+# files. It never sweeps other changes into the commit. (An earlier version ran `git add -u --
+# wiki`, which pulled pages the app was still writing into unrelated commits.) Broken links are
+# reported but do not block the commit.
+
+ROOT=$(git rev-parse --show-toplevel) || exit 0
+ENGINE="${LLMWIKI_AUDIT_DIR:-$HOME/.llmwiki-audit}"
+# Git for Windows runs hooks in an MSYS shell where $HOME is /c/Users/...; native Python cannot
+# open that form, so hand it a mixed-form path (C:/Users/...) when cygpath is available.
+command -v cygpath >/dev/null 2>&1 && ENGINE=$(cygpath -m "$ENGINE")
+# Pick an interpreter that really runs: on Windows `python3` can be a Microsoft Store stub that
+# exists on PATH but only prints an install hint.
+PY=""
+for c in python python3 py; do
+  if command -v "$c" >/dev/null 2>&1 && "$c" -c "import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)" >/dev/null 2>&1; then
+    PY="$c"; break
+  fi
+done
+[ -n "$PY" ] || { echo "pre-commit: WARNING no working Python 3.9+ - link form NOT normalized, link check skipped"; exit 0; }
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM -- 'wiki/*.md' 'wiki/**/*.md')
+if [ -n "$STAGED" ] && [ -f "$ENGINE/fix_link_form.py" ]; then
+  # Only files whose staged and working copies are identical: normalizing a partly staged file
+  # would pull its unstaged part into the commit.
+  CLEAN=$(printf '%s\n' "$STAGED" | while read -r f; do
+    git diff --quiet -- "$f" && printf '%s\n' "$f"
+  done)
+  if [ -n "$CLEAN" ]; then
+    printf '%s\n' "$CLEAN" | "$PY" "$ENGINE/fix_link_form.py" --files-from - "$ROOT/wiki" || true
+    printf '%s\n' "$CLEAN" | while read -r f; do git add -- "$f"; done
+  fi
+fi
+
+"$PY" - "$ROOT" <<'PY' || true
+import re, sys, pathlib
+root = pathlib.Path(sys.argv[1]) / "wiki"
+stems = {p.stem for p in root.rglob("*.md")}
+bad = {}
+for p in root.rglob("*.md"):
+    body = re.sub(r"```.*?```|`[^`\n]*`", " ", p.read_text(encoding="utf-8", errors="ignore"), flags=re.S)
+    for m in re.findall(r"\[\[([^\]]+)\]\]", body):
+        t = m.split("|")[0].split("#")[0].strip().removesuffix(".md")
+        if t and t.split("/")[-1] not in stems:
+            bad.setdefault(t, []).append(p.relative_to(root).as_posix())
+if bad:
+    print("pre-commit: unresolvable body links (not blocking):")
+    for k, v in list(bad.items())[:5]:
+        print(f"   [[{k}]] <- {v[:2]}")
+PY
+exit 0

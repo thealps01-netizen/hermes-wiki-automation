@@ -1,0 +1,19 @@
+# Test dependencies and generated mirrors: the gates write these from desktop/plugin.js on every run,
+# and they carry this machine's paths. Rebuild them with the gates instead of committing them.
+node_modules/
+tests/sdk-stub.mjs
+tests/sdk-preview-stub.mjs
+tests/plugin-under-test.mjs
+tests/plugin-preview.mjs
+tests/sdk-health-stub.mjs
+tests/plugin-health-under-test.mjs
+
+# Preview pages and measurement dumps — regenerated on every run. The PNGs ARE committed: they are the
+# gates' own evidence (and the README's screenshots).
+tests/preview*.html
+tests/*.json
+!tests/package.json
+!tests/package-lock.json
+
+__pycache__/
+*.pyc

@@ -1,0 +1,15 @@
+#!/bin/sh
+# LLM Wiki mirror refresh. The wiki automation engine installs it (install.py -> <wiki>/.githooks/).
+# Edit it in the engine's wiki-hooks/ folder, never in the wiki copy.
+#
+# The off-machine copies are only as fresh as the last push, so every commit pushes each remote.
+# Best effort: a failed push (no network, expired token) never fails the commit; the daily
+# watchdog and auto-commit report a mirror that is behind.
+
+ROOT=$(git rev-parse --show-toplevel) || exit 0
+for r in $(git -C "$ROOT" remote); do
+  git -C "$ROOT" push --quiet "$r" HEAD:refs/heads/main 2>/dev/null \
+    && echo "post-commit: $r mirror updated" \
+    || echo "post-commit: $r push FAILED (network or credentials?)"
+done
+exit 0

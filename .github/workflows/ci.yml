@@ -1,0 +1,94 @@
+# The gates that need no Hermes install run on both runners; the checks that need the application's
+# own sources get a SPARSE, pinned checkout of the core so they RUN instead of quietly skipping
+# themselves. The backend selftest and the measured Electron render need a real install and stay
+# local; see README § "Continuous integration".
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUTF8: "1"   # Windows runners print cp1252 otherwise; audit messages carry non-ASCII
+  # The core revision whose tokens and stylesheet this panel is verified against. Bump deliberately.
+  CORE_REPO: https://github.com/NousResearch/hermes-agent.git
+  CORE_SHA: 54718306e348dbf62ab18a256cb8299615cc0493
+
+jobs:
+  gates:
+    name: gates (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tests/package-lock.json
+
+      - name: Install the jsdom gate dependencies
+        working-directory: tests
+        run: npm ci
+
+      - name: Core sources for the token and stylesheet checks (sparse, pinned)
+        run: |
+          set -euo pipefail
+          core="$RUNNER_TEMP/hermes-core"
+          git init -q "$core"
+          git -C "$core" remote add origin "$CORE_REPO"
+          git -C "$core" sparse-checkout init --cone
+          git -C "$core" sparse-checkout set apps/desktop/src cron
+          for i in 1 2 3; do git -C "$core" fetch -q --depth 1 origin "$CORE_SHA" && break; sleep $((i*20)); done
+          git -C "$core" checkout -q FETCH_HEAD
+          test -d "$core/apps/desktop/src" || { echo "core sources missing"; exit 1; }
+          echo "HERMES_AGENT_DIR=$core" >> "$GITHUB_ENV"
+
+      - name: Engine manifest names exactly the bundled engine folder
+        run: python tools/engine_release.py --check
+
+      - name: Static audit (includes the release gate)
+        run: python tests/audit_static.py
+
+      - name: Canary run (every rule must be able to fail)
+        working-directory: tests
+        run: python canary_audit.py
+
+      - name: Release gate canary (changelog, manifest, installed copy)
+        working-directory: tests
+        run: python release_gate.py
+
+      - name: Core contract (the cron names the backend calls, at the pinned sha)
+        run: python tests/contract_core.py
+
+      - name: Core contract canary (every way it can fail must fire)
+        run: python tests/contract_core.py --selftest
+
+      - name: Metro line behaviour, every contract state (jsdom)
+        working-directory: tests
+        run: node render_metro.mjs
+
+      - name: Metro details, reused components behind clicks (jsdom)
+        working-directory: tests
+        run: node render_check.mjs
+
+      - name: Metro History detail, run history and diagnostics (jsdom)
+        working-directory: tests
+        run: node render_health.mjs
+
+      - name: Metro previews, one live page per contract state (app stylesheet)
+        working-directory: tests
+        run: node preview.mjs

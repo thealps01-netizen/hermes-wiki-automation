@@ -1,0 +1,35 @@
+# Wiki automation engine: what is versioned and what is not.
+# Rule: code, job definitions, rules and docs are versioned. Secrets, machine state, logs,
+# backups, work areas and per-machine settings are not.
+
+# secrets (never commit)
+llm-wiki-token.txt
+*.token
+.env
+
+# per-machine settings and state (install.py and the scripts recreate them)
+settings.json
+state.json
+harvest-state.json
+ingest-watch-state.json
+evidence-recheck-cache.json
+auto-commit.lock
+last-run.txt
+LAST-ALERT.txt
+alerts.log
+
+# work areas and archives
+inbox/
+rebuild-staging/
+backups/
+
+# probe output and leftovers
+*.jsonl
+*.bak-*
+__pycache__/
+
+# one-off diagnostic probes (hard-coded to one machine; not part of the product)
+mcp_probe.sh
+mcp_probe2.sh
+mcp_token_check.sh
+probe_serena.sh

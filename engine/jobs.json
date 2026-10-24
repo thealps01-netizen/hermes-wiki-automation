@@ -1,0 +1,42 @@
+{
+  "_about": "The wiki automation's scheduled jobs. This file in the engine is the single definition: install.py creates and updates the Hermes cron jobs from it, and panels only read it. Descriptions are shown as the job's prompt in the Jobs list; they carry no machine-specific paths, because the scripts resolve every path from settings.json.",
+  "jobs": {
+    "autocommit": {
+      "name": "Wiki Auto-Commit",
+      "kind": "script",
+      "launcher": "palantir_wiki_autocommit.py",
+      "impl": "wiki_autocommit.py",
+      "schedule_key": "autocommit",
+      "default_schedule": "0 9 * * *",
+      "description": "Wiki Auto-Commit (script-only job). WHAT IT DOES: commits what the LLM Wiki app generated in the wiki project, once the app is idle (queues empty, no fresh .llm-wiki/*.tmp, nothing written in the last 5 minutes). It stages only wiki/, raw/sources/, raw/evidence/ and .llm-wiki/project.json, and checks that both off-machine mirrors advanced. WHY: the app generates pages but never commits. SAFETY: it refuses to commit when the page count dropped, purpose.md/schema.md are the app's blank templates, or the project id changed. HOW TO READ: silent = nothing to commit; 'OK wiki commit <sha>' = committed and mirrored; '!!' = read the lines below it, nothing was committed."
+    },
+    "ingest_watch": {
+      "name": "Wiki Ingest Watch",
+      "kind": "script",
+      "launcher": "palantir_wiki_ingest_watch.py",
+      "impl": "wiki_ingest_watch.py",
+      "schedule_key": "ingest_watch",
+      "default_schedule": "0 9 * * *",
+      "description": "Wiki Ingest Watch (script-only job). WHAT IT DOES: checks that every source file in raw/sources/ was actually ingested by the LLM Wiki app (name and sha256 against .llm-wiki/ingest-cache.json, plus its wiki/sources page). WHY: when the app is closed, its source watch is off or a file type is not accepted, a dropped source stays silently unprocessed. HOW TO READ: silent = every source ingested; '!!' = the sources not ingested and what to check."
+    },
+    "watchdog": {
+      "name": "Watch Dog",
+      "kind": "script",
+      "launcher": "palantir_wiki_watchdog.py",
+      "impl": "watchdog.py",
+      "schedule_key": "watchdog",
+      "default_schedule": "0 9 * * *",
+      "description": "Watch Dog (script-only job). WHAT IT DOES: a daily health audit of the wiki; it reports and never repairs. Checks: page loss against the last count, broken and duplicate-named links, pages missing from the index, isolated pages (the app's own graph rule), purpose.md/schema.md and the project id, mirror freshness, the app's MCP access, and drift between skill copies of the agents. WHY: most wiki damage is silent. HOW TO READ: one quiet line = healthy; a block of findings = each line says what is wrong and what to do; findings are also kept in alerts.log for the panel."
+    },
+    "session_harvest": {
+      "name": "Wiki Session Harvest",
+      "kind": "agent",
+      "launcher": "palantir_wiki_session_harvest.py",
+      "impl": "wiki_session_harvest.py",
+      "prompt_file": "harvest_prompt.md",
+      "schedule_key": "session_harvest",
+      "default_schedule": "30 21 * * *",
+      "description": "Wiki Session Harvest (script gate + agent). WHAT IT DOES: collects the conversations finished since the last harvest (Hermes, Codex, Claude Code, Antigravity) and drafts wiki source candidates from the decisions in them, with evidence captured as files. It never writes to the wiki: the owner approves each candidate. COST: when nothing new was said the script stops the run before any model is called."
+    }
+  }
+}
