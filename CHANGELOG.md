@@ -3,6 +3,16 @@
 Notable changes to the Wiki Automation panel. The version is carried in three places — `plugin.yaml`,
 `dashboard/manifest.json` and the top heading below — and the static audit fails when they disagree.
 
+## 2.8.2
+
+Engine `d8bb46f`. The agent-setup check no longer expects Serena.
+
+### Fixed
+* **The setup check reported Serena as missing after it was uninstalled.** Serena was removed from
+  every agent on this machine, and the check still expected it in Hermes, so Watch Dog showed
+  "bileşen eksik: serena -> hermes" every day. Serena is no longer an expected component, and the
+  `--deep` probe no longer looks for it; honey and the LLM Wiki MCP server are still checked.
+
 ## 2.8.1
 
 Engine `b6b4382`.
