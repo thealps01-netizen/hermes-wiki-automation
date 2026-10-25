@@ -23,6 +23,8 @@ whether it was completed, read-only.
 ## Tools an owner or agent calls
 
 - `wiki_candidates.py list | show | approve | reject`: the only way a candidate enters the wiki.
+  `list` re-derives an update draft whose page changed since it was written (`source_merge.py`; see the
+  module docstring of `wiki_candidates.py`); the derived draft needs its own approval.
 - `evidence_capture.py`: the only way an evidence folder in `raw/evidence/` is made. It downloads
   the file, pins it to a commit, hashes it and checks the passages. `--verify`, `--recheck` and
   `--normalise` maintain the whole store (logic in `evidence_store.py`).

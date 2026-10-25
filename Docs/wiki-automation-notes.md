@@ -1080,8 +1080,32 @@ so its absent components raise no finding. The key is optional and its absence k
 expectation (all four agents). It exists because the owner removed Claude Code and the Codex CLI on
 2026-10-16 and the check reported eight missing items for them every day.
 
+## A stale update draft is re-derived, not refused (2.9.0)
+
+Until 2.8.2 an update draft kept only the hash of the page it was written from. When another draft for
+the same page was approved first, the hash no longer matched and the draft could only be rejected. On
+2026-10-22 one such draft ("wiki-watchdog repository deleted") was a full copy of the page from before
+the metro-panel draft was approved; applied as written it would have deleted about 30 approved lines.
+The approval was refused correctly, but the change it carried was lost until a later harvest.
+
+The draft adapter now keeps `base.md`, the exact page the draft was written from. `list` (the panel's
+queue) replays the draft's own changes against `base.md` onto the page as it is now
+(`engine/source_merge.py`: units are decisions, list items, table rows, paragraphs; where both sides
+changed the same units the merge runs again on their lines). The result is a new candidate beside the
+original with `derived_from`; the original stays unapprovable and is hidden while its derivation waits.
+A derived draft passes the same format, content and citation checks as any draft, plus one more: every
+line of the current page the draft did not change survives, and every added line is one the draft
+added. It has its own review digest, so an approval given to the original never covers it. A later
+change re-derives from the original again. When both sides changed the same lines, or `base.md` is
+missing (drafts from before 2.9.0; the before-image an applied operation kept is used when its hash
+matches), nothing is derived and the queue shows why. The merge is code only; no model is called.
+
+Replayed on copies of the real files: the 2026-10-22 draft re-derived onto today's page with no
+conflict, the 30 metro lines kept, 19 changed lines all from the draft itself.
+
 ## Version
 
+2.9.0 — a stale update draft is re-derived onto the page as it is now and offered for a fresh approval, instead of only being refused
 2.7.2 — the setup check expects only the agents listed in `drift.agents`
 2.7.1 — the approval's own refusal is shown in the review with Approve locked; the harvest meets the same check at submission
 2.7.0 — Evidence to fetch: a draft names the public copy a finding needs, the owner fetches it in the review (passages verified, stored in the draft), Approve waits for every copy

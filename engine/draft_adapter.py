@@ -118,6 +118,9 @@ class DraftAdapter:
             if source_bytes is not None:
                 with (folder / 'source.md').open('xb') as f:
                     f.write(source_bytes)
+            if metadata['kind'] == 'update':
+                with (folder / 'base.md').open('xb') as f:
+                    f.write(base_bytes)
             with (folder / 'candidate.json').open('xb') as f:
                 f.write(encoded)
             return f'{self.run_id}/{name}'

@@ -491,6 +491,8 @@ const BUNDLES = {
       candCorrects: name => `Corrects the version you approved earlier (${name}). The text below shows what changes.`,
       candSuperseded: name => `A newer draft of this source is waiting (${name}). Approve that one and reject this one.`,
       candBlocked: 'This draft cannot be applied:',
+      candStaleDraft: 'The page changed after this draft was written.',
+      candRederived: name => `Rewritten onto the page as it is now, from an older draft (${name}). Only the text the older draft changed is changed; approve this version.`,
       candRetire: 'Retire',
       candDiff: 'Diff against the current source',
       candNoDiff: 'no change to show',
@@ -3496,9 +3498,15 @@ function CandidatesCard({ t, cands, initialRef, scope, onShown, engineUpdate: up
   const rowNote = !row ? null : row.blocked
     ? jsxs('p', { className: 'fl-warning', 'data-draft-note': 'blocked', children: [
       t('wa.candBlocked'), ' ', row.blocked] }, 'draft-note')
+    : row.stale
+      ? jsxs('p', { className: 'fl-warning', 'data-draft-note': 'stale', children: [
+        t('wa.candStaleDraft'), ' ', row.stale] }, 'draft-note')
     : row.superseded_by
       ? jsx('p', { className: 'fl-warning', 'data-draft-note': 'superseded',
         children: t('wa.candSuperseded', draftName(row.superseded_by)) }, 'draft-note')
+      : row.derived_from
+        ? jsx('p', { className: 'wa-desk-summary', 'data-draft-note': 'rederived',
+          children: t('wa.candRederived', draftName(row.derived_from)) }, 'draft-note')
       : row.corrects
         ? jsx('p', { className: 'wa-desk-summary', 'data-draft-note': 'correction',
           children: t('wa.candCorrects', draftName(row.corrects)) }, 'draft-note')

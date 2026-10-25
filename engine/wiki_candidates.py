@@ -35,6 +35,15 @@ front matter, no [[wikilinks]]), then writes and re-derives every evidence folde
 sources. It does not commit: the daily auto-commit does, once the app has finished ingesting.
 Rejected candidates move to <audit>/inbox/rejected/ with the reason, so the harvest's hit rate can
 be measured later.
+
+An update draft keeps base.md, the exact page it was written from. When that page has changed since
+(another draft was approved first), `list` re-derives the draft: the draft's own changes against
+base.md are merged by unit onto the page as it is now (source_merge.py), and the result becomes a new
+candidate next to the original, with `derived_from` naming the original. Only that new candidate is
+listed; it is reviewed and approved like any other, and the original stays unapprovable. A later
+change re-derives again from the original draft, never from an earlier derivation. When both sides
+changed the same lines, or the page the draft was written from is not kept, nothing is derived and
+the original is listed with the reason.
 """
 from __future__ import annotations
 
@@ -44,14 +53,17 @@ import difflib
 import hashlib
 import io
 import json
+import os
 import re
 import shutil
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import evidence_store  # noqa: E402
+import source_merge  # noqa: E402
 import wikiconfig  # noqa: E402
 from workflow_paths import PathRefused, checked_path, identifier
 
@@ -125,6 +137,8 @@ def pending(inbox: Path) -> list[Path]:
     out = []
     for run in sorted(p for p in inbox.iterdir() if p.is_dir() and p.name != "rejected") if inbox.exists() else []:
         for c in sorted((run / "candidates").glob("*")) if (run / "candidates").is_dir() else []:
+            if c.name.startswith('.'):
+                continue
             if (c / "candidate.json").exists() and not (c / "applied.json").exists():
                 out.append(c)
     return out
@@ -173,13 +187,154 @@ def check_format(text: str) -> list[str]:
     return problems
 
 
-def cmd_list(inbox: Path, as_json: bool) -> int:
+DERIVATION = 'unit-merge-1'
+_KEPT = ('kind', 'target', 'summary', 'why', 'evidence_requests')
+
+
+def _read_meta(folder: Path) -> dict | None:
+    try:
+        data = json.loads((folder / 'candidate.json').read_bytes())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _origin(meta: dict | None) -> str | None:
+    derived = (meta or {}).get('derived_from')
+    return derived.get('ref') if isinstance(derived, dict) and isinstance(derived.get('ref'), str) else None
+
+
+def _lineage(inbox: Path) -> dict[str, list[tuple[Path, dict, str]]]:
+    """Original ref -> every candidate derived from it, pending, applied or rejected."""
+    out: dict[str, list] = {}
+    for folder in [*inbox.glob('*/candidates/*'), *inbox.glob('rejected/*')]:
+        if folder.name.startswith('.'):
+            continue
+        meta = _read_meta(folder)
+        origin = _origin(meta)
+        if origin:
+            status = ('rejected' if folder.parent.name == 'rejected'
+                      else 'applied' if (folder / 'applied.json').exists() else 'pending')
+            out.setdefault(origin, []).append((folder, meta, status))
+    return out
+
+
+def _written_from(inbox: Path, c: Path, expected) -> bytes | None:
+    """The exact page an update draft was written from: its own base.md, else the before-image an
+    applied operation kept, matched by hash."""
+    if not isinstance(expected, str) or not re.fullmatch('[0-9a-f]{64}', expected):
+        return None
+    for path in [c / 'base.md', *sorted((inbox.parent / 'operations').glob('*/base.md'))]:
+        try:
+            checked_path(inbox.parent, path.relative_to(inbox.parent).as_posix())
+            data = path.read_bytes()
+        except (PathRefused, OSError, ValueError):
+            continue
+        if hashlib.sha256(data).hexdigest() == expected:
+            return data
+    return None
+
+
+def rederive(wiki: Path, inbox: Path, ref: str) -> dict | None:
+    """Re-derive a stale update draft onto the page as it is now. None when the draft is not a stale
+    update; {'ref': new} when a derived candidate exists; {'stale': why, ...} when none can be made."""
+    c, m = load_candidate(inbox, ref)
+    if m['kind'] != 'update' or _origin(m):
+        return None
+    target = checked_path(wiki, f"raw/sources/{m['target']}")
+    if not target.is_file():
+        return {'stale': 'The page this draft updates no longer exists; reject the draft.'}
+    current = target.read_bytes()
+    current_hash = hashlib.sha256(current).hexdigest()
+    if m.get('base_sha256') == current_hash:
+        return None
+    base = _written_from(inbox, c, m.get('base_sha256'))
+    if base is None:
+        return {'stale': 'The page changed after this draft was written, and the page it was written '
+                         'from is not kept, so it cannot be re-derived; reject it, and the next harvest '
+                         'drafts the change again.'}
+    draft = (c / 'source.md').read_bytes()
+    try:
+        texts = [data.decode('utf-8') for data in (base, current, draft)]
+    except UnicodeError:
+        return {'stale': 'The page or the draft is not UTF-8 text; it cannot be re-derived.'}
+    result = source_merge.merge(*texts)
+    if result.text is None:
+        return {'stale': 'The page changed after this draft was written, and both changed the same text; '
+                         'compare the versions below, then reject the draft or ask for a new one.',
+                'conflicts': result.conflicts}
+    if result.already_applied:
+        return {'stale': 'The page already holds every change in this draft; reject it as a duplicate.',
+                'already_applied': True}
+    problems = source_merge.preservation_problems(*texts, result.text)
+    problems += check_format(result.text)
+    problems += content_refusals(result.text, texts[1])
+    lines, table = evidence_store._evidence_texts(result.text)
+    ids = sorted(evidence_store.cited_ids(lines + table))
+    if problems:
+        return {'stale': 'The re-derived draft fails a check, so it is not offered: ' + '; '.join(problems)}
+    metadata = {k: m[k] for k in _KEPT if k in m}
+    metadata.update(evidence_ids=ids, base_sha256=current_hash, derived_from={
+        'ref': ref, 'base_sha256': m['base_sha256'], 'source_sha256': hashlib.sha256(draft).hexdigest(),
+        'method': DERIVATION, 'renumbered': [list(pair) for pair in result.renumbered]})
+    validate_source_citations(result.text, ids)
+    name = identifier(f'{c.name[:100]}-r{current_hash[:12]}')
+    folder = checked_path(inbox, f'{c.parent.parent.name}/candidates/{name}')
+    encoded = (json.dumps(metadata, sort_keys=True, separators=(',', ':')) + '\n').encode()
+    source = result.text.encode('utf-8')
+    if folder.exists():
+        if (folder / 'candidate.json').read_bytes() != encoded or (folder / 'source.md').read_bytes() != source:
+            raise Refused(f'{ref_of(folder)} exists with different content; it is never overwritten')
+        return {'ref': ref_of(folder)}
+    staging = Path(tempfile.mkdtemp(prefix=f'.{name}.', dir=c.parent))
+    try:
+        if (c / 'evidence').is_dir():
+            shutil.copytree(c / 'evidence', staging / 'evidence')
+        (staging / 'source.md').write_bytes(source)
+        (staging / 'base.md').write_bytes(current)
+        (staging / 'candidate.json').write_bytes(encoded)
+        os.rename(staging, folder)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+    return {'ref': ref_of(folder)}
+
+
+def cmd_list(inbox: Path, as_json: bool, wiki: Path | None = None) -> int:
     rows = []
-    waiting = pending(inbox)
-    wiki = None
+    hidden, stale = set(), {}
+    if wiki is not None:
+        lineage = _lineage(inbox)
+        for c in pending(inbox):
+            ref = ref_of(c)
+            if _origin(_read_meta(c)):
+                continue
+            if any(status != 'pending' for _, _, status in lineage.get(ref, [])):
+                hidden.add(ref)
+                continue
+            try:
+                outcome = rederive(wiki, inbox, ref)
+            except (Refused, PathRefused, OSError) as exc:
+                outcome = {'stale': f'Re-deriving this draft failed: {exc}'}
+            if outcome and 'ref' in outcome:
+                hidden.add(ref)
+            elif outcome:
+                stale[ref] = outcome
+        for c in pending(inbox):
+            meta = _read_meta(c) or {}
+            if _origin(meta):
+                target = wiki / 'raw' / 'sources' / str(meta.get('target'))
+                fresh = target.is_file() and sha(target) == meta.get('base_sha256')
+                if not fresh or _origin(meta) not in hidden or _origin(meta) in stale:
+                    hidden.add(ref_of(c))
+    waiting = [c for c in pending(inbox) if ref_of(c) not in hidden]
     for c in waiting:
         m = json.loads((c / "candidate.json").read_text(encoding="utf-8"))
         row = {"ref": ref_of(c), "kind": m.get("kind"), "target": m.get("target"), "summary": m.get("summary", "")}
+        if _origin(m):
+            row["derived_from"] = _origin(m)
+            row["renumbered"] = m["derived_from"].get("renumbered", [])
+        row.update(stale.get(ref_of(c), {}))
         newer = [o for o in waiting if o != c and submitted(o) > submitted(c)
                  and json.loads((o / "candidate.json").read_text(encoding="utf-8")).get("target") == m.get("target")]
         if newer:
@@ -488,7 +643,7 @@ def main(argv: list[str]) -> int:
     try:
         wiki, inbox = paths()
         if args.cmd == "list":
-            return cmd_list(inbox, args.json)
+            return cmd_list(inbox, args.json, wiki=wiki)
         if args.cmd == "show":
             return cmd_show(wiki, inbox, args.ref, args.json)
         if args.cmd == "approve":

@@ -85,9 +85,8 @@ class DraftDispatchTests(unittest.TestCase):
             engine = Path(os.environ['WIKI_ENGINE_TEST_DIR'])
             stage = home / 'engine'
             stage.mkdir()
-            for name in ('draft_adapter.py', 'workflow_paths.py', 'wiki_candidates.py', 'wikiconfig.py', 'evidence_store.py',
-                         'evidence_requests.py'):
-                (stage / name).write_bytes((engine / name).read_bytes())
+            for module_file in engine.glob('*.py'):
+                (stage / module_file.name).write_bytes(module_file.read_bytes())
             (stage / 'settings.json').write_text(json.dumps({'project_root': str(wiki), 'project_id': 'fixture', 'audit_dir': str(data), 'hermes_home': str(home)}))
             (home / 'config.yaml').write_text('plugins:\n  entries:\n    wiki-automation:\n      settings:\n        draft_job_id: job\n')
             token = set_hermes_home_override(home)

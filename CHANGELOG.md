@@ -3,6 +3,19 @@
 Notable changes to the Wiki Automation panel. The version is carried in three places — `plugin.yaml`,
 `dashboard/manifest.json` and the top heading below — and the static audit fails when they disagree.
 
+## 2.9.0
+
+Engine `37ab0df`. A stale update draft is re-derived instead of only refused.
+
+### Changed
+* **A draft written before another approval is rewritten onto the page as it is now.** When two
+  drafts updated the same source page and one was approved first, the other could only be rejected,
+  and its change was lost until a later harvest. A draft now keeps the page it was written from; the
+  review queue replays only that draft's own changes onto the current page and offers the result as a
+  new draft ("Rewritten onto the page as it is now, from an older draft"), which needs its own
+  approval. Every line the draft did not change is checked to survive. When both changed the same
+  lines, the queue says so and nothing is rewritten. No model is called.
+
 ## 2.8.2
 
 Engine `d8bb46f`. The agent-setup check no longer expects Serena.
