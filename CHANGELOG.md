@@ -3,6 +3,22 @@
 Notable changes to the Wiki Automation panel. The version is carried in three places — `plugin.yaml`,
 `dashboard/manifest.json` and the top heading below — and the static audit fails when they disagree.
 
+## 2.10.0
+
+Engine `d03321b`. A harvest run that stops says why, and its cost is reported.
+
+### Fixed
+* **"The engine did not finish this run" without a reason.** When the drafting turn failed, its final
+  answer was not the required report, or a conversation was not read completely, the run stayed open
+  and nothing said which. The plugin now records each run's drafting session and how its turn ended;
+  the panel shows that reason ("2 of 7 captured inputs were not read completely…", "The drafting turn
+  failed…", or the engine's own refusal) instead of the generic sentence.
+
+### Added
+* **What a harvest run cost.** Harvest's "Last run" row shows Hermes' own cost estimate for the
+  drafting session, read from the profile's session store. `wiki_session_harvest.py --runs` lists
+  every run with its stop reason and cost.
+
 ## 2.9.0
 
 Engine `37ab0df`. A stale update draft is re-derived instead of only refused.

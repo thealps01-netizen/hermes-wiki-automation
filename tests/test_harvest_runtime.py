@@ -94,6 +94,11 @@ class HarvestRuntimeTests(unittest.TestCase):
                         'status': 'no_candidates', 'candidate_refs': [], 'missing_evidence': []}))
                     manager.invoke_hook('on_session_end', session_id='fixture-session', completed=True, failed=False, interrupted=False)
                     self.assertFalse((data / 'harvest-state.json').exists(), 'An unread input was silently marked processed')
+                    attempt = runs[0].parent / 'attempt.json'
+                    def stop_code():
+                        return json.loads(attempt.read_bytes())['end']['stop']['code']
+                    self.assertEqual(json.loads(attempt.read_bytes())['start']['session_id'], 'fixture-session')
+                    self.assertEqual(stop_code(), 'unread_input', 'An unread input stopped the run without saying so')
                     from wiki_harvest_native_fixture.draft_security import draft_call
                     changed_name = list(manifest['input_hashes'])[-1]
                     changed_file = runs[0].parent / changed_name
@@ -137,8 +142,11 @@ class HarvestRuntimeTests(unittest.TestCase):
                     rendered = next((value for value in rendered if isinstance(value, str)), None)
                     self.assertEqual(rendered, wire['owner_report'], 'Native data outcome leaked as a machine-only owner notification')
                     manager.invoke_hook('post_llm_call', session_id='fixture-session', assistant_response=rendered)
-                    manager.invoke_hook('on_session_end', session_id='fixture-session', completed=False, failed=True, interrupted=False)
+                    manager.invoke_hook('on_session_end', session_id='fixture-session', completed=False, failed=True, interrupted=False,
+                                        turn_exit_reason='provider_error')
                     self.assertFalse((data / 'harvest-state.json').exists(), 'Scheduler failure was interpreted as domain completion')
+                    self.assertEqual(stop_code(), 'turn_failed')
+                    self.assertIn('provider_error', json.loads(attempt.read_bytes())['end']['stop']['detail'])
                     with patch.dict(os.environ, {'LLMWIKI_SETTINGS': str(home / 'unselected-missing-settings.json')}):
                         manager.invoke_hook('on_session_end', session_id='fixture-session', completed=True, failed=False, interrupted=False)
                     committed = json.loads(runs[0].read_bytes())
@@ -147,6 +155,8 @@ class HarvestRuntimeTests(unittest.TestCase):
                         'Completion followed the model list instead of the submissions the engine accepted')
                     self.assertEqual(committed['outcome']['status'], 'drafted' if drafted else 'no_candidates')
                     self.assertEqual(committed['outcome']['missing_evidence'], ['No execution evidence was supplied.'])
+                    self.assertIsNone(json.loads(attempt.read_bytes())['end']['stop'], 'A finished run kept a stop reason')
+                    self.assertEqual(json.loads(runs[0].read_bytes())['input_hashes'], manifest['input_hashes'])
                     state = (data / 'harvest-state.json').read_bytes()
                     manager.invoke_hook('on_session_end', session_id='fixture-session', completed=True, failed=False, interrupted=False)
                     self.assertEqual((data / 'harvest-state.json').read_bytes(), state)

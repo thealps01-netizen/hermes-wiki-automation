@@ -1040,8 +1040,12 @@ def harvest_status():
     if not isinstance(row.get("execution_id"), str) or not isinstance(row.get("committed"), bool) \
             or not isinstance(agent_states, dict) or not all(isinstance(value, str) for value in agent_states.values()):
         return {**failed, "error": _tx("harvest_last_unsupported")}
+    stop, spent = row.get("stop_reason"), row.get("usage")
     return {"ok": True, "agents": agents, "last_run_supported": True,
-            "last_run": {key: row.get(key) for key in ("run", "execution_id", "created", "committed", "status", "agents")}}
+            "last_run": {**{key: row.get(key) for key in ("run", "execution_id", "created", "committed", "status", "agents")},
+                         "stop_reason": stop if isinstance(stop, dict) and isinstance(stop.get("detail"), str) else None,
+                         "cost_usd": spent.get("cost_usd") if isinstance(spent, dict)
+                         and isinstance(spent.get("cost_usd"), (int, float)) else None}}
 
 
 @router.get("/candidates")
@@ -2797,8 +2801,12 @@ def _selftest() -> int:
                    "created": "2026-10-18T20:02:24+03:00", "committed": False, "status": None,
                    "agents": {"hermes": "114 conversation(s)", "codex": "not found (fixture)"}}
             cases = [("    print('{\"ok\": true, \"run\": null}')", True, None),
-                     (f"    print({json.dumps(row)!r})", True, {key: row[key] for key in (
-                         "run", "execution_id", "created", "committed", "status", "agents")}),
+                     (f"    print({json.dumps(row)!r})", True, {**{key: row[key] for key in (
+                         "run", "execution_id", "created", "committed", "status", "agents")},
+                         "stop_reason": None, "cost_usd": None}),
+                     (f"    print({json.dumps({**row, 'stop_reason': {'code': 'unread_input', 'detail': 'one input'}, 'usage': {'cost_usd': 0.5}})!r})",
+                      True, {**{key: row[key] for key in ("run", "execution_id", "created", "committed", "status", "agents")},
+                             "stop_reason": {"code": "unread_input", "detail": "one input"}, "cost_usd": 0.5}),
                      ("    print('{\"ok\": false, \"error\": \"Run r2 has an unreadable run.json\"}')\n    sys.exit(1)",
                       False, "Run r2 has an unreadable run.json"),
                      ("    print('{\"ok\": true}')", False, "unsupported"),

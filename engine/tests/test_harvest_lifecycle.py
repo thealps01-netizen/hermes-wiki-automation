@@ -158,7 +158,9 @@ class HarvestLifecycleTests(unittest.TestCase):
         legacy.mkdir(parents=True)
         (legacy / 'run.json').write_text('{"run": "99999999-legacy", "committed": false}')
         self.assertEqual(ask(), (0, {'ok': True, 'run': 'run-one', 'execution_id': 'execution-one', 'job_id': 'job-one',
-            'created': None, 'committed': False, 'status': None, 'agents': {'hermes': '1 conversation(s)'}}))
+            'created': None, 'committed': False, 'status': None, 'agents': {'hermes': '1 conversation(s)'},
+            'conversations': 1, 'session_id': None, 'usage': None,
+            'stop_reason': {'code': 'not_recorded', 'detail': 'This run predates the stop-reason record.'}}))
         self.finish()
         code, row = ask()
         self.assertEqual((code, row['committed'], row['status']), (0, True, 'no_candidates'))

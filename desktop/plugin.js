@@ -178,6 +178,7 @@ const BUNDLES = {
       metroLinesStopAll: 'This engine stops every line while a folder is missing, so no conversation is read. Updating the engine keeps the other lines running.',
       metroHvBlocked: 'stopped: a line folder is missing',
       metroHvNotFinished: 'The engine did not finish this run; its conversations wait for the next run.',
+      metroHvCost: usd => `about $${usd} (Hermes' estimate)`,
       metroLineFolder: name => `${name} folder`,
       metroLinesClosed: names => `${names} lines closed: folders not found`,
       metroLineReading: 'reading',
@@ -3875,7 +3876,7 @@ function harvestModel(t, reads, lines) {
   const paused = live && role.state === 'paused'
   const stoppedAt = latest?.finished_at || role?.last_run_at || latest?.at || ''
   const cause = recorded ? String(role.last_error || latest?.error_preview || '')
-    : outcome === 'stopped' ? t('wa.metroHvNotFinished') : ''
+    : outcome === 'stopped' ? (status?.data?.last_run?.stop_reason?.detail || t('wa.metroHvNotFinished')) : ''
   const feeding = lines.filter(line => line.row.found && line.row.enabled && line.state !== 'unread').length
   const does = lines.length && feeding < lines.length ? t('wa.metroHvReads', feeding, lines.length)
     : t('wa.metroHvDoes')
@@ -3896,7 +3897,10 @@ function harvestModel(t, reads, lines) {
                 : !role.target?.ok ? { state: 'bad', line1: t('wa.metroHvCannotRun'), line2: t('wa.metroSeeAlert') }
               : { state: 'ok', pill: role.next_run_at ? pill('clock', 'ask', t('wa.metroNext', hourOf(role.next_run_at)))
                 : null, line1: does, line2: untilText(t, role.next_run_at) || t('wa.metroHvNoNext') }
-  return { known, roles, role, latest, running, failed, paused, stoppedAt, cause, station, stopsAll }
+  const engineRun = status?.data?.ok === true ? status.data.last_run : null
+  const cost = !running && engineRun && history[0] && engineRun.execution_id === history[0].id
+    && typeof engineRun.cost_usd === 'number' ? engineRun.cost_usd : null
+  return { known, roles, role, latest, running, failed, paused, stoppedAt, cause, station, stopsAll, cost }
 }
 
 function reviewModel(t, reads, projectOk, running) {
@@ -4373,11 +4377,12 @@ function WikiDetail({ t, model, reads, onClose }) {
 
 function HarvestDetail({ t, model, reads, onClose }) {
   const { auto, jobs, harvest, runs } = reads
-  const { known, role, latest, running, failed, cause } = model.harvest
+  const { known, role, latest, running, failed, cause, cost } = model.harvest
   const refused = jobs.error || refusal(t, jobs.data)
   const unknown = t('wa.metroNotReported')
   const names = model.lines.filter(line => line.row.found && line.row.enabled).map(line => line.name)
   const outcome = running ? t('wa.metroRunRunning') : failed ? t('wa.metroRunFailed') : ''
+  const spent = typeof cost === 'number' ? t('wa.metroHvCost', cost.toFixed(2)) : ''
   const took = latest && !running && typeof latest.duration_ms === 'number'
     ? t('wa.metroFinishedIn', Math.max(1, Math.round(latest.duration_ms / 1000))) : ''
   const rows = [
@@ -4389,7 +4394,7 @@ function HarvestDetail({ t, model, reads, onClose }) {
       : role.next_run_at ? [capFirst(whenText(t, role.next_run_at)), untilText(t, role.next_run_at)]
         .filter(Boolean).join(' · ') : '—' },
     { label: t('wa.metroLastRun'), value: !known ? unknown : role?.last_run_at
-      ? [capFirst(whenText(t, role.last_run_at)), took, outcome].filter(Boolean).join(' · ') : t('wa.runNever') }
+      ? [capFirst(whenText(t, role.last_run_at)), took, outcome, spent].filter(Boolean).join(' · ') : t('wa.runNever') }
   ]
   return jsxs(MetroDetail, { t, id: 'harvest', glyph: 'sparkle', heading: t('wa.metroHarvestHead'), onClose,
     children: [

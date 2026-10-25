@@ -18,13 +18,56 @@ def current(ctx):
     return execution
 
 
+class EngineRefused(RuntimeError):
+    def __init__(self, reason):
+        super().__init__('Native harvest refused or failed; captured inputs and cursors were preserved'
+                         + (f': {reason}' if reason else ''))
+        self.reason = reason
+
+
 def run(paths, args, body=None):
     reply = subprocess.run([sys.executable, '-B', str(paths.engine_dir / 'wiki_session_harvest.py'), *args],
         input=json.dumps(body) if body is not None else None, capture_output=True, text=True,
         encoding='utf-8', timeout=60, env=paths.environment())
     if reply.returncode:
-        raise RuntimeError('Native harvest refused or failed; captured inputs and cursors were preserved')
+        reason = None
+        try:
+            reason = json.loads(reply.stdout.splitlines()[-1]).get('reason')
+        except (ValueError, IndexError, AttributeError):
+            pass
+        raise EngineRefused(reason if isinstance(reason, str) else None)
     return json.loads(reply.stdout.splitlines()[-1])
+
+
+def note(row, execution, event):
+    """Record a run event for the owner's report; a recording failure never changes the run itself."""
+    try:
+        run(row['paths'], ['--record-attempt', '--home', str(row['paths'].home),
+            '--execution-id', execution.execution_id, '--job-id', execution.job_id], {'run_id': row['run'], 'event': event})
+    except (EngineRefused, OSError, ValueError, subprocess.SubprocessError):
+        pass
+
+
+def stop_reason(row, completed, failed, interrupted, turn_exit_reason):
+    """Why this turn cannot finish the run, or None when it may try."""
+    if completed is not True or failed is not False or interrupted is not False:
+        how = 'was interrupted' if interrupted else 'failed' if failed else 'did not complete'
+        return {'code': 'turn_failed', 'detail': f'The drafting turn {how} (exit reason: {turn_exit_reason or "none reported"}).'}
+    if row['response'] is None:
+        return {'code': 'no_final_report', 'detail': 'The final answer was not the required JSON report.'}
+    unread = []
+    for path in row['manifest']['input_hashes']:
+        end = 0
+        for begin, stop in sorted(row['reads'].get(path, [])):
+            if begin > end:
+                break
+            end = max(end, stop)
+        if path not in row['totals'] or end != row['totals'][path]:
+            unread.append(path)
+    if unread:
+        return {'code': 'unread_input', 'detail': f'{len(unread)} of {len(row["manifest"]["input_hashes"])} captured inputs '
+                f'were not read completely, first: {unread[0]}.'}
+    return None
 
 
 def start(ctx, *, session_id, **kwargs):
@@ -57,6 +100,7 @@ def start(ctx, *, session_id, **kwargs):
     states[execution.execution_id] = {'session': session_id, 'engine': engine, 'paths': paths, 'manifest': manifest,
         'run': reply['run_id'], 'reads': {}, 'totals': {}, 'submitted': set(), 'response': None}
     ctx._wiki_harvest_states = states
+    note(states[execution.execution_id], execution, {'stage': 'start', 'session_id': session_id})
 
 
 def state(ctx, session_id=None):
@@ -139,26 +183,30 @@ def response(ctx, *, session_id, assistant_response, **kwargs):
         pass
 
 
-def finish(ctx, *, session_id, completed=False, failed=True, interrupted=True, **kwargs):
+def finish(ctx, *, session_id, completed=False, failed=True, interrupted=True, turn_exit_reason=None, model=None, **kwargs):
     row = state(ctx, session_id)
-    if row is None or completed is not True or failed is not False or interrupted is not False or row['response'] is None:
+    if row is None:
         return
-    for path in row['manifest']['input_hashes']:
-        end = 0
-        for begin, stop in sorted(row['reads'].get(path, [])):
-            if begin > end:
-                return
-            end = max(end, stop)
-        if path not in row['totals'] or end != row['totals'][path]:
-            return
     execution = ctx.current_cron_execution()
-    refs = sorted(row['submitted'])
-    outcome = {'status': 'drafted' if refs else 'no_candidates', 'candidate_refs': refs,
-        'missing_evidence': row['response']['missing_evidence'], 'execution_id': execution.execution_id, 'job_id': execution.job_id,
-        'reviewed_inputs': row['manifest']['input_hashes']}
-    run(row['paths'], ['--host-outcome', '--home', str(row['paths'].home),
-        '--execution-id', execution.execution_id, '--job-id', execution.job_id],
-        {'run_id': row['run'], 'outcome': outcome})
+    labels = {name: value if isinstance(value, str) and 0 < len(value) <= 200 else None
+              for name, value in (('turn_exit_reason', turn_exit_reason), ('model', model))}
+    event = {'stage': 'end', 'session_id': session_id, 'completed': completed is True, 'failed': failed is not False,
+             'interrupted': interrupted is not False, **labels,
+             'stop': stop_reason(row, completed, failed, interrupted, labels['turn_exit_reason'])}
+    if event['stop'] is None:
+        refs = sorted(row['submitted'])
+        outcome = {'status': 'drafted' if refs else 'no_candidates', 'candidate_refs': refs,
+            'missing_evidence': row['response']['missing_evidence'], 'execution_id': execution.execution_id, 'job_id': execution.job_id,
+            'reviewed_inputs': row['manifest']['input_hashes']}
+        try:
+            run(row['paths'], ['--host-outcome', '--home', str(row['paths'].home),
+                '--execution-id', execution.execution_id, '--job-id', execution.job_id],
+                {'run_id': row['run'], 'outcome': outcome})
+        except EngineRefused as exc:
+            event['stop'] = {'code': 'outcome_refused', 'detail': (exc.reason or 'The engine refused the completion.')[:2000]}
+            note(row, execution, event)
+            raise
+    note(row, execution, event)
 
 
 def register(ctx):

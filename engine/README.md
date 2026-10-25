@@ -18,7 +18,11 @@ Missed runs (PC off, gateway down) catch up once when Hermes starts again. The h
 cursor per agent, so nothing is lost or harvested twice. An agent that is not installed is skipped and
 the others still run; an agent whose history cannot be read keeps its cursor, so its conversations
 wait for a later run while the others are collected. `--last-run` prints the newest host-bound run and
-whether it was completed, read-only.
+whether it was completed, read-only; it also names why an unfinished run stopped (`stop_reason`) and
+what its drafting session cost (`usage`, Hermes' own figures from the profile's `state.db`).
+`--runs` lists every host-bound run the same way (`--json` for machine output). The native plugin
+records each run's drafting session and turn end in `inbox/<run>/attempt.json` (`--record-attempt`);
+`harvest_attempts.py` lists the stop codes.
 
 ## Tools an owner or agent calls
 

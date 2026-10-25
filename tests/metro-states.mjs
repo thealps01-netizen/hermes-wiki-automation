@@ -96,7 +96,9 @@ function lastRunOf(c) {
   const agents = Object.fromEntries(ADAPTERS.map(a => [a.id, missingIds(c).includes(a.id) ? 'not found (fixture)'
     : unreadIds(c).includes(a.id) ? UNREAD_REPORT : '2 conversation(s)']))
   return { last_run_supported: true, last_run: { run: '20261018-213042-590db30b7052', execution_id: `run-${IDS.session_harvest}`,
-    created: isoIn(-20), committed: !c.notCommitted, status: c.notCommitted ? null : 'drafted', agents } }
+    created: isoIn(-20), committed: !c.notCommitted, status: c.notCommitted ? null : 'drafted', agents,
+    stop_reason: c.stopReason ? { code: 'unread_input', detail: c.stopReason } : null,
+    cost_usd: typeof c.costUsd === 'number' ? c.costUsd : null } }
 }
 const runFailed = (role, c) => (role === 'session_harvest' && Boolean(c.harvestFailed))
   || (role === 'watchdog' && Boolean(c.checkExit)) || (role === 'ingest_watch' && Boolean(c.sourcesFailed))
@@ -409,6 +411,12 @@ export const STATES = {
     // The cron store says the run completed; the engine says nothing was saved. The engine wins.
     expect: { alert: 'harvest-failed', tone: 'bad', stations: { harvest: 'bad' },
       text: ['No drafts were written. Reason: The engine did not finish this run; its conversations wait for the next run.'] } },
+  'harvest-stop-reason': { conditions: { notCommitted: true, stopReason: '2 of 7 captured inputs were not read completely, first: conversations/b.md.' },
+    // The engine recorded why the run stopped; the owner sees that reason, not the generic sentence.
+    expect: { alert: 'harvest-failed', tone: 'bad', stations: { harvest: 'bad' },
+      text: ['Reason: 2 of 7 captured inputs were not read completely'], notText: ['its conversations wait for the next run'] } },
+  'harvest-cost': { conditions: { costUsd: 0.95 }, open: 'harvest',
+    expect: { detail: 'harvest', text: ["about $0.95 (Hermes' estimate)"] } },
   'harvest-lines': { conditions: { missingFolder: ['codex', 'claude'] }, open: 'harvest',
     expect: { detail: 'harvest', text: ['Reads your Hermes and Antigravity conversations'], notText: ['Codex'] } }
 }

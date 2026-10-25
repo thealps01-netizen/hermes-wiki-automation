@@ -486,8 +486,10 @@ def load_state(path: Path) -> dict:
 READ_STATUS = re.compile(r"\d+ conversation\(s\)")
 
 
-def last_run(audit: Path) -> dict:
+def bound_runs(audit: Path, home=None):
+    """Host-bound runs, newest first, each with why it stopped and what its drafting session cost."""
     from workflow_paths import checked_path, identifier, PathRefused
+    import harvest_attempts
     inbox = audit / "inbox"
     names = sorted((entry.name for entry in inbox.iterdir() if entry.is_dir()), reverse=True) if inbox.is_dir() else []
     for name in names:
@@ -499,14 +501,21 @@ def last_run(audit: Path) -> dict:
             continue
         try:
             manifest = json.loads(path.read_bytes())
-        except ValueError as exc:
-            raise HarvestError(f"Run {name} has an unreadable run.json") from exc
-        if not isinstance(manifest, dict) or not manifest.get("execution_id"):
-            continue
+            if not isinstance(manifest, dict) or not manifest.get("execution_id"):
+                continue
+            attempt = harvest_attempts.describe(audit, name, manifest, home)
+        except (ValueError, harvest_attempts.AttemptError) as exc:
+            raise HarvestError(f"Run {name} has an unreadable run.json or attempt.json") from exc
         outcome = manifest.get("outcome") if isinstance(manifest.get("outcome"), dict) else {}
-        return {"ok": True, "run": name, "execution_id": manifest["execution_id"], "job_id": manifest.get("job_id"),
-                "created": manifest.get("created"), "committed": manifest.get("committed") is True,
-                "status": outcome.get("status"), "agents": manifest.get("agents") or {}}
+        yield {"run": name, "execution_id": manifest["execution_id"], "job_id": manifest.get("job_id"),
+               "created": manifest.get("created"), "committed": manifest.get("committed") is True,
+               "status": outcome.get("status"), "agents": manifest.get("agents") or {},
+               "conversations": len(manifest.get("conversations") or []), **attempt}
+
+
+def last_run(audit: Path, home=None) -> dict:
+    for row in bound_runs(audit, home):
+        return {"ok": True, **row}
     return {"ok": True, "run": None}
 
 
@@ -612,6 +621,10 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--execution-id", help="Native plugin supplied occurrence, not model authority")
     ap.add_argument("--job-id", help="Native plugin supplied configured job")
     ap.add_argument("--host-outcome", action="store_true")
+    ap.add_argument("--record-attempt", action="store_true",
+                    help="Native plugin: store a run's start/end event (stdin: {run_id, event})")
+    ap.add_argument("--runs", action="store_true", help="Every host-bound run with its stop reason and cost")
+    ap.add_argument("--json", action="store_true", help="With --runs: print JSON")
     ap.add_argument("--home", help="Owning native profile")
     ap.add_argument("--since", help="ISO time; test or backfill, cursors are not read")
     args = ap.parse_args(argv)
@@ -645,6 +658,37 @@ def main(argv: list[str]) -> int:
         except (HarvestError, WorkflowError, OSError, ValueError, KeyError, TypeError) as exc:
             print(json.dumps({'ok': False, 'status': 'failed', 'reason': str(exc)}))
             return 1
+    if args.record_attempt:
+        import harvest_attempts
+        try:
+            if cfg.get('harvest_workflow_enabled') is not True:
+                raise HarvestError('Native harvest is not explicitly activated')
+            if not args.home or not cfg.get('hermes_home') or Path(args.home).resolve() != Path(cfg['hermes_home']).resolve():
+                raise HarvestError('Attempt is not owned by the selected profile')
+            request = json.loads(sys.stdin.buffer.read(20001))
+            if not isinstance(request, dict) or set(request) != {'run_id', 'event'}:
+                raise HarvestError('Unsupported attempt fields')
+            harvest_attempts.record(audit, request['run_id'], args.execution_id, args.job_id, request['event'])
+            print(json.dumps({'ok': True}))
+            return 0
+        except (HarvestError, harvest_attempts.AttemptError, OSError, ValueError, KeyError, TypeError) as exc:
+            print(json.dumps({'ok': False, 'reason': str(exc)}))
+            return 1
+    if args.runs:
+        try:
+            rows = list(bound_runs(audit, cfg.get('hermes_home')))
+        except (HarvestError, OSError, ValueError) as exc:
+            print(json.dumps({'ok': False, 'error': str(exc)}))
+            return 1
+        if args.json:
+            print(json.dumps({'ok': True, 'runs': rows}, ensure_ascii=False))
+        else:
+            for row in rows:
+                spent = row['usage'] or {}
+                cost = f"${spent['cost_usd']:.2f}" if isinstance(spent.get('cost_usd'), (int, float)) else '-'
+                why = 'finished' if row['committed'] else (row['stop_reason'] or {}).get('detail', 'running')
+                print(f"{row['run']}  {row['conversations']:>3} conv  {cost:>7}  {why}")
+        return 0
     hcfg = {**DEFAULTS, **(cfg.get("harvest") or {})}
     hcfg["agents"] = {**DEFAULTS["agents"], **((cfg.get("harvest") or {}).get("agents") or {})}
     state_path = audit / "harvest-state.json"
@@ -663,7 +707,7 @@ def main(argv: list[str]) -> int:
 
     if args.last_run:
         try:
-            print(json.dumps(last_run(audit), ensure_ascii=False))
+            print(json.dumps(last_run(audit, cfg.get('hermes_home')), ensure_ascii=False))
             return 0
         except (HarvestError, OSError, ValueError) as exc:
             print(json.dumps({'ok': False, 'error': str(exc)}))

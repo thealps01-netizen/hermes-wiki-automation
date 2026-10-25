@@ -1103,8 +1103,32 @@ matches), nothing is derived and the queue shows why. The merge is code only; no
 Replayed on copies of the real files: the 2026-10-22 draft re-derived onto today's page with no
 conflict, the 30 metro lines kept, 19 changed lines all from the draft itself.
 
+## Why a harvest run stopped, and what it cost (2.10.0)
+
+Until 2.9.0 the plugin's turn-end hook returned silently in every case that kept a run open: the turn
+failed, the final answer was not the JSON report, or a captured input was not read completely. The
+panel could only say "The engine did not finish this run". Between 2026-10-17 and 10-22 nine runs
+stayed open this way ($2.37 together); five of them read almost nothing (under 800 output tokens,
+about $0.05 each), and nothing said why.
+
+The plugin now records two events per bound run in `inbox/<run>/attempt.json` through the engine
+(`wiki_session_harvest.py --record-attempt`): `start` (the drafting session that owns the run) and
+`end` (the turn's flags, its exit reason, and the stop reason when the run cannot be finished:
+`turn_failed`, `no_final_report`, `unread_input`, `outcome_refused` with the engine's own refusal).
+A recording failure never changes the run. `--last-run` and `--runs` report the stop reason, or
+`no_end_event` when the session ended without reporting back (its session end reason named), and
+`not_recorded` for runs from before this record. Usage and cost are read read-only from the owning
+profile's `state.db` session row, so the figure is Hermes' own estimate, not one made here; a missing
+store is reported as an error, not guessed. The panel shows the recorded reason in place of the
+generic sentence and the cost in Harvest's "Last run" row.
+
+Measured on this machine from the session store (Hermes' estimates, 34 harvest runs that matched one
+cron session, 2026-10-15 to 10-24): $24.48 in total; a nightly run that finished cost $0.19–$1.76,
+about $0.24 per conversation on 2026-10-24.
+
 ## Version
 
+2.10.0 — a harvest run that stops says why (recorded by the plugin, shown in the panel) and its drafting cost is reported from Hermes' session store
 2.9.0 — a stale update draft is re-derived onto the page as it is now and offered for a fresh approval, instead of only being refused
 2.7.2 — the setup check expects only the agents listed in `drift.agents`
 2.7.1 — the approval's own refusal is shown in the review with Approve locked; the harvest meets the same check at submission
