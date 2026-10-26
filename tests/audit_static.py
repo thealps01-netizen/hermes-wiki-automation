@@ -1778,6 +1778,12 @@ def check_wiki_map() -> None:
     js = read(JS)
     if '@router.get("/wiki/map")' not in api:
         _report("plugin_api.py: the route '/wiki/map' is missing — the sphere calls it")
+    start = api.find("def _graph_rule(")
+    rule = api[start:api.find("\ndef ", start + 1)] if start >= 0 else ""
+    if not rule or "exec_module" in rule or "exec(compile(" not in rule:
+        _report("plugin_api.py: _graph_rule loads the engine's graph rule through an import loader — Python then "
+                "writes __pycache__ into the installed release and the panel refuses all work as a dirty release; "
+                "compile the source in memory (exec(compile(...)))")
     if '"app_graph_isolated.py"' not in api or "_graph_rule(paths.engine_dir)" not in api:
         _report("plugin_api.py: /wiki/map no longer reads the engine's graph rule (app_graph_isolated.py) — "
                 "a second link rule would disagree with the app")

@@ -3,6 +3,19 @@
 Notable changes to the Wiki Automation panel. The version is carried in three places — `plugin.yaml`,
 `dashboard/manifest.json` and the top heading below — and the static audit fails when they disagree.
 
+## 2.12.1
+
+Engine `280c5db` (unchanged).
+
+### Fixed
+* **The sphere no longer locks the panel.** `GET /wiki/map` loaded the engine's graph rule from the
+  installed release through Python's import loader, which wrote
+  `__pycache__/app_graph_isolated.cpython-*.pyc` into `releases/<engine sha>/`. The panel then saw a
+  release that no longer matched its install record and refused all work: "Installed code release is
+  dirty or lacks verified file identity". The rule is now compiled in memory and nothing is written
+  beside it. `tests/test_wiki_map_release_clean.py` fails on the old loader; the static audit forbids
+  an import loader in `_graph_rule`.
+
 ## 2.12.0
 
 Engine `280c5db`. A new nightly job, Wiki Harvest, reads conversations one at a time.

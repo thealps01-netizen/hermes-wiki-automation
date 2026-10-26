@@ -2,6 +2,6 @@
   "name": "wiki-automation",
   "label": "Wiki Automation",
   "description": "One Wiki workspace: Nexus maps sources and scheduled jobs, Chronicle owns the run journal, Folio reviews source decisions, and Health provides diagnostics. All views use the existing engine, with read-only status, two-step approval and archive-before-clear protections.",
-  "version": "2.12.0",
+  "version": "2.12.1",
   "api": "plugin_api.py"
 }

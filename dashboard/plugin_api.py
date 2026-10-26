@@ -852,11 +852,12 @@ _MAP_BANDS = ("concepts", "entities", "sources")
 
 
 def _graph_rule(engine_dir: Path):
-    spec = importlib.util.spec_from_file_location("wa_app_graph_rule", engine_dir / "app_graph_isolated.py")
-    if spec is None or spec.loader is None:
+    source = engine_dir / "app_graph_isolated.py"
+    if not source.is_file():
         raise ImportError("app_graph_isolated.py not found")
-    rule = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(rule)
+    rule = type(sys)("wa_app_graph_rule")
+    rule.__file__ = str(source)
+    exec(compile(source.read_bytes(), str(source), "exec"), rule.__dict__)
     for name in ("FRONTMATTER", "WIKILINK", "_related"):
         if not hasattr(rule, name):
             raise ImportError(f"app_graph_isolated.py has no {name}")
