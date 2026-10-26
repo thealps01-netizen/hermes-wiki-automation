@@ -12,8 +12,9 @@ the current harvest (design section 5, step 2). Drafting is `harvest_merge.py`'s
 USAGE
   python harvest_pipeline.py --collect --since ISO              queue what is new (no model call)
   python harvest_pipeline.py --process --model M --provider P --cap USD
-                                                                read due rows; stops at the cap,
-                                                                before the next paid conversation
+                                                                read due rows; stops before a
+                                                                conversation that could pass the cap
+                                                                (judged by the dearest one so far)
   python harvest_pipeline.py --merge --model M --provider P --cap USD   draft one candidate per page from the
                                                                 finished rows into the shadow folder
                                                                 <audit>/harvest-shadow/<night>/ (never the inbox)
@@ -41,6 +42,10 @@ import harvest_merge as hm  # noqa: E402
 from workflow_paths import PathRefused  # noqa: E402
 
 RETRY_AFTER_SECONDS = 6 * 3600   # a failed call is tried again on a later run, never in a tight loop
+# Hermes sessions not read (owner decision 2026-10-26): kanban cards wait for their own cheaper digest
+# lane (design section 6); tool sessions are the same task run many times over (benchmarks), so their
+# items only repeat each other. The current harvest's own skips (cron, oneshot, subagents) stay in its reader.
+SKIPPED_SOURCES = ('kanban', 'tool')
 
 
 def collect(ledger, conversations, max_chars, prompt_version):
@@ -64,8 +69,9 @@ def process(ledger, extract, worker, cap_usd=None):
     An invalid reply ends that row as `error` and the next row is read; a failed model call leaves the
     row waiting for a later run and stops this one, so a provider outage is not paid for row by row."""
     report = {'done': 0, 'empty': 0, 'error': 0, 'waiting': 0, 'cost_usd': 0.0, 'stopped': None}
+    dearest = 0.0
     while True:
-        if cap_usd is not None and report['cost_usd'] >= cap_usd:
+        if hx.over_cap(report['cost_usd'], dearest, cap_usd):
             report['stopped'] = f'cost cap ${cap_usd:.2f} reached'
             return report
         row = ledger.claim(worker)
@@ -74,6 +80,7 @@ def process(ledger, extract, worker, cap_usd=None):
         result = extract(row['parts'])
         spent = dict(cost_usd=result['cost_usd'], tokens_in=result['tokens_in'], tokens_out=result['tokens_out'])
         report['cost_usd'] += result['cost_usd'] or 0.0
+        dearest = max(dearest, result['cost_usd'] or 0.0)
         if not result['error']:
             ledger.finish(row['id'], worker, result['items'], result['problems'], **spent)
             report['done' if result['items'] else 'empty'] += 1
@@ -90,6 +97,22 @@ def process(ledger, extract, worker, cap_usd=None):
 def owner_rules(cfg):
     import wikiconfig
     return hx.source_rules((wikiconfig.project_root(cfg) / 'AGENTS.md').read_text(encoding='utf-8'))
+
+
+def skipped_hermes(home):
+    """Ids of the Hermes sessions whose source is in SKIPPED_SOURCES."""
+    import sqlite3
+    db = Path(home) / 'state.db'
+    con = sqlite3.connect(f'file:{db.as_posix()}?mode=ro', uri=True)
+    try:
+        marks = ','.join('?' * len(SKIPPED_SOURCES))
+        return {row[0] for row in con.execute(f'SELECT id FROM sessions WHERE source IN ({marks})', SKIPPED_SOURCES)}
+    finally:
+        con.close()
+
+
+def without_skipped(conversations, skipped):
+    return [c for c in conversations if not (c[0] == 'hermes' and c[1] in skipped)]
 
 
 def found_conversations(cfg, since, until, report):
@@ -109,9 +132,11 @@ def found_conversations(cfg, since, until, report):
         except Exception as exc:  # a format change must be loud, never a silent skip
             report[agent] = f'UNREADABLE ({exc.__class__.__name__}: {exc})'
             continue
-        report[agent] = f'{len(found)} conversation(s)'
-        for cid, label, messages in found:
-            yield agent, cid, label, messages
+        found = [(agent, *conversation) for conversation in found]
+        kept = without_skipped(found, skipped_hermes(roots[agent]) if agent == 'hermes' else set())
+        report[agent] = f'{len(kept)} conversation(s)' + (f', {len(found) - len(kept)} kanban/tool skipped'
+                                                         if len(kept) < len(found) else '')
+        yield from kept
 
 
 def main(argv):

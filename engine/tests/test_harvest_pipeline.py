@@ -102,12 +102,36 @@ class Process(Base):
         self.assertEqual(rows[0]['next_attempt_at'], 1000.0 + hp.RETRY_AFTER_SECONDS)
         self.assertEqual((report['waiting'], report['stopped']), (1, 'call failed: overloaded'))
 
-    def test_the_cost_cap_stops_before_the_next_paid_conversation(self):
+    def test_the_cost_cap_stops_when_the_next_conversation_could_pass_it(self):
+        # The next call is judged by the dearest call so far: 0.3 spent + 0.3 would pass 0.5.
         self.queue('a', 'b', 'c')
         report = hp.process(self.ledger, lambda parts: result([ITEM], cost=0.3), 'w', cap_usd=0.5)
-        self.assertEqual([r['status'] for r in self.ledger.rows()], ['done', 'done', 'pending'])
+        self.assertEqual([r['status'] for r in self.ledger.rows()], ['done', 'pending', 'pending'])
         self.assertIn('cap', report['stopped'])
+        self.assertAlmostEqual(report['cost_usd'], 0.3)
+
+    def test_the_cost_cap_allows_calls_that_still_fit(self):
+        self.queue('a', 'b', 'c')
+        report = hp.process(self.ledger, lambda parts: result([ITEM], cost=0.3), 'w', cap_usd=0.65)
+        self.assertEqual([r['status'] for r in self.ledger.rows()], ['done', 'done', 'pending'])
         self.assertAlmostEqual(report['cost_usd'], 0.6)
+
+
+class Sources(unittest.TestCase):
+    def test_kanban_and_tool_sessions_are_not_read(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as home:
+            with sqlite3.connect(Path(home) / 'state.db') as con:
+                con.execute('CREATE TABLE sessions (id TEXT, source TEXT)')
+                con.executemany('INSERT INTO sessions VALUES (?, ?)',
+                                [('own', 'desktop'), ('cli', 'local'), ('card', 'kanban'), ('bench', 'tool'), ('old', None)])
+            con.close()
+            skipped = hp.skipped_hermes(Path(home))
+        self.assertEqual(skipped, {'card', 'bench'})
+        found = [('hermes', 'own', 'l', []), ('hermes', 'card', 'l', []), ('hermes', 'bench', 'l', []),
+                 ('claude', 'card', 'l', []), ('hermes', 'old', 'l', [])]
+        self.assertEqual([(a, c) for a, c, *_ in hp.without_skipped(found, skipped)],
+                         [('hermes', 'own'), ('claude', 'card'), ('hermes', 'old')])
 
 
 if __name__ == '__main__':

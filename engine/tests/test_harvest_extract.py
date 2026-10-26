@@ -264,5 +264,16 @@ class Transport(unittest.TestCase):
         self.assertIsNone(hx.session_id_from('nothing here'))
 
 
+class CostCap(unittest.TestCase):
+    def test_the_next_call_is_judged_by_the_dearest_call_so_far(self):
+        self.assertFalse(hx.over_cap(0.0, 0.0, 1.0))      # nothing spent yet: the first call is allowed
+        self.assertFalse(hx.over_cap(0.4, 0.3, 1.0))
+        self.assertTrue(hx.over_cap(0.8, 0.3, 1.0))
+        self.assertFalse(hx.over_cap(5.0, 1.0, None))     # no cap
+        self.assertTrue(hx.over_cap(1.0, 0.0, 1.0))       # spent reaches the cap
+        self.assertFalse(hx.over_cap(0.7, 0.3, 1.0))      # a call that would land exactly on the cap fits
+        self.assertTrue(hx.over_cap(0.0, 0.0, 0.0))       # a zero cap allows nothing
+
+
 if __name__ == '__main__':
     unittest.main()

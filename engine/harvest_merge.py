@@ -296,8 +296,8 @@ class CapReached(Exception):
 
 def merge_night(ledger, wiki, out_dir, caller, rules_text, night, today, cap_usd=None):
     """Merge every finished, unmerged ledger row; returns the night's report (also written to report.json).
-    A failed model call, or reaching `cap_usd` before the next call, stops the night and leaves the rows
-    for the next one."""
+    A failed model call, or a next call that could pass `cap_usd` (judged by the dearest call so far),
+    stops the night and leaves the rows for the next one."""
     wiki, out_dir = Path(wiki), Path(out_dir)
     rows = ledger.unmerged()
     report = {'night': night, 'rows': [r['id'] for r in rows], 'candidates': [], 'refused': [], 'unchanged': [],
@@ -316,13 +316,16 @@ def merge_night(ledger, wiki, out_dir, caller, rules_text, night, today, cap_usd
             else:
                 items[f'I{len(items) + 1}'] = entry
 
+    dearest = [0.0]
+
     def ask(prompt, name):
-        if cap_usd is not None and report['cost_usd'] >= cap_usd:
+        if hx.over_cap(report['cost_usd'], dearest[0], cap_usd):
             raise CapReached(f'cost cap ${cap_usd:.2f} reached')
         reply, usage = caller(prompt)
         (out_dir / 'replies').mkdir(parents=True, exist_ok=True)
         (out_dir / 'replies' / f'{name}.txt').write_text(reply or '', encoding='utf-8')
         report['cost_usd'] += usage.get('cost_usd') or 0.0
+        dearest[0] = max(dearest[0], usage.get('cost_usd') or 0.0)
         report['tokens_in'] += hx.tokens_in(usage)
         report['tokens_out'] += (usage.get('usage') or {}).get('output_tokens') or 0
         report['sessions'].append(usage.get('session_id'))

@@ -150,6 +150,12 @@ def source_rules(agents_md):
     return rest[:following.start() + 3 if following else len(rest)].strip() + '\n'
 
 
+def over_cap(spent, dearest, cap):
+    """True when the next paid call could take `spent` past `cap`. A call's price is known only after it
+    returns, so the next one is judged by the dearest call of this run; the first call is always allowed."""
+    return cap is not None and (spent >= cap or spent + dearest > cap)
+
+
 def tokens_in(usage):
     """Every input token of one call: uncached, read from the prompt cache and written to it."""
     figures = usage.get('usage') or {}

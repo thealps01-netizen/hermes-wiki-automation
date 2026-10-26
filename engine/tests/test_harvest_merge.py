@@ -323,6 +323,17 @@ class Night(Wiki):
         self.assertIn('cap', report['stopped'])
         self.assertEqual(len(self.ledger.unmerged()), 1)
 
+    def test_the_cost_cap_stops_when_the_next_call_could_pass_it(self):
+        # Each call costs 0.01: route and draft spend 0.02, and a third call could pass 0.025.
+        self.finished('a', [DECISION])
+        bad = draft_reply({'kind': 'update', 'summary': 's', 'why': 'w'}, UPDATED.replace('## Decisions', '## Notes'))
+        call, prompts = self.caller({'route': [json.dumps({'routes': [{'item': 'I1', 'target': TARGET}]})],
+                                     'draft': [bad, bad]})
+        report = hm.merge_night(self.ledger, self.wiki, self.out, call, RULES, 'night-1', '2026-10-26', cap_usd=0.025)
+        self.assertEqual(len(prompts), 2)
+        self.assertIn('cap', report['stopped'])
+        self.assertLessEqual(report['cost_usd'], 0.025)
+
     def test_a_failed_call_leaves_the_rows_for_the_next_night(self):
         self.finished('a', [DECISION])
 
