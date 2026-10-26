@@ -89,6 +89,27 @@ class DraftTests(unittest.TestCase):
             self.assertEqual(before, {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob('*') if p.is_file()})
             self.assertFalse((run / 'candidates').exists())
 
+    def test_the_same_checks_and_storage_work_without_a_bound_run(self):
+        import draft_adapter
+        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as temp:
+            root = Path(temp)
+            wiki, inbox, run, adapter, metadata, source = self.retained_fixture(root)
+            candidates = root / 'shadow/candidates'
+            for label, (meta, text) in {
+                    'stale base': ({**metadata, 'base_sha256': '0' * 64}, source),
+                    'no decisions section': (metadata, source.replace('## Decisions', '## Notes')),
+            }.items():
+                with self.subTest(label), self.assertRaises(draft_adapter.DraftRefused):
+                    draft_adapter.check_draft(wiki, candidates, meta, text)
+            base = draft_adapter.check_draft(wiki, candidates, metadata, source)
+            self.assertEqual(base, (wiki / 'raw/sources/2026-10-06-fixture.md').read_bytes())
+            draft_adapter.store_draft(candidates / 'fixture', metadata, source, base)
+            self.assertEqual((candidates / 'fixture/base.md').read_bytes(), base)
+            self.assertEqual((candidates / 'fixture/source.md').read_text(encoding='utf-8'), source)
+            draft_adapter.store_draft(candidates / 'fixture', metadata, source, base)
+            with self.assertRaises(draft_adapter.DraftRefused):
+                draft_adapter.store_draft(candidates / 'fixture', metadata, source + 'changed\n', base)
+
     def test_read_and_submit_are_confined_to_bound_run(self):
         import draft_adapter
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as temp:

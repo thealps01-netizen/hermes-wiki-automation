@@ -3,6 +3,26 @@
 Notable changes to the Wiki Automation panel. The version is carried in three places — `plugin.yaml`,
 `dashboard/manifest.json` and the top heading below — and the static audit fails when they disagree.
 
+## 2.12.0
+
+Engine `280c5db`. A new nightly job, Wiki Harvest, reads conversations one at a time.
+
+### Added
+* **Wiki Harvest (installed paused).** A script-only job at 21:30 that reads every conversation
+  changed since its last run one by one (Hermes except `tool` sessions, Codex, Claude Code,
+  Antigravity), keeps what each one said in a ledger, and merges the new decisions, findings and
+  articles into at most one draft per wiki page. Drafts appear in Review as before; nothing reaches
+  the wiki without the owner's approval. A night has a cost cap (10 USD) and a time limit (45 min);
+  what a night does not reach waits for the next. A page that already has a draft in Review is not
+  drafted again until that draft is decided. The night's report is kept in `harvest-nights/<night>/`.
+  The job is created paused: switch it on and pause Wiki Session Harvest in the panel. Wiki Session
+  Harvest stays installed, because the approval system is bound to that agent job.
+
+### Fixed
+* **The harvest cost note** said about $0.24 per conversation; the packed harvest's cost is mostly
+  fixed per run (about $0.85 a night plus $0.003 per conversation), so the per-conversation figure
+  only reflected how few conversations that night held.
+
 ## 2.11.0
 
 Engine `d03321b` (unchanged). The panel gets the modern look the owner approved
