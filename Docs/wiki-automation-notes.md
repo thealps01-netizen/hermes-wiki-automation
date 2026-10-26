@@ -1123,11 +1123,51 @@ store is reported as an error, not guessed. The panel shows the recorded reason 
 generic sentence and the cost in Harvest's "Last run" row.
 
 Measured on this machine from the session store (Hermes' estimates, 34 harvest runs that matched one
-cron session, 2026-10-15 to 10-24): $24.48 in total; a nightly run that finished cost $0.19–$1.76,
-about $0.24 per conversation on 2026-10-24.
+cron session, 2026-10-15 to 10-24): $24.48 in total; a nightly run that finished cost $0.19–$1.76.
+The cost is mostly fixed per run, not per conversation: a least-squares fit over 25 committed runs
+gives about $0.85 a run plus $0.003 per conversation, because the sources index and the growing
+context are re-sent on every turn. (An earlier version of this note gave "$0.24 per conversation";
+that average only reflected how few conversations the 2026-10-24 night held.)
+
+## Wiki Harvest: one conversation at a time (2.11.0)
+
+The packed harvest reads every new conversation in one drafting turn. Measured on this machine it
+read 3-4 conversations a night and its backlog grew to 156 by 2026-10-26; read in one turn, a long
+conversation is cut and what it decided can be missed. Wiki Harvest
+(`harvest_night.py`, a script-only job) replaces that turn with three steps:
+
+1. **Collect** (code only): every conversation changed since the last run becomes one row of the
+   harvest ledger (`harvest-ledger.sqlite` in the automation folder). Hermes sessions whose source
+   is `tool` are skipped (the same task run many times over; owner decision 2026-10-26); kanban
+   sessions are read. The first run starts each agent where the packed harvest's cursor left it.
+2. **Read** (reading model, default `claude-sonnet-5-5`): each row is read on its own and returns
+   decisions, findings, process steps and article signals, each with a quote that code checks against
+   the conversation. A row gets at most two paid attempts.
+3. **Merge** (merging model, default `claude-opus-5-5`): the night's items are routed to wiki pages
+   and each page gets at most one draft, written through the same check and storage as the packed
+   harvest's drafts, so Review, evidence fetching and approval are unchanged.
+
+Limits (settings.json `harvest_pipeline`: `cap_usd` 10, `minutes` 45, `call_timeout_seconds` 600):
+before each paid call, code stops the night if that call could pass the cap or the time limit, judged
+by the dearest and the slowest call of the night. Reading may use 70% of both, so merging always has
+room. Items a night does not reach stay in the ledger; an item is never drafted twice. A page whose
+draft waits in Review is not drafted again; its items wait until that draft is approved or rejected.
+The time limit stays below Hermes' own one-hour limit for script jobs.
+
+Measured before release (2026-10-26, the conversations the packed harvest read on its last three
+nights): 24 of the 26 units in its 7 drafts were found again, plus items it drafted nothing from;
+the merger wrote 8 drafts with 0 refusals. Cost: reading about $4.18 per million characters
+(about $0.09 for an owner conversation), merging $0.10-$0.30 a page. The first night's backlog
+(127 conversations, 4.5 million characters) costs about $19 to read and is spread over the first
+nights by the cap.
+
+Wiki Session Harvest stays installed: the approval system checks that its agent job exists with
+the drafting tools (`draft_security.approval_runtime_ready`), not that it is enabled, so it can be
+paused. Wiki Harvest is created paused; the owner switches it on and pauses Wiki Session Harvest.
 
 ## Version
 
+2.11.0 — Wiki Harvest: a script-only nightly job (installed paused) reads conversations one at a time into a ledger and merges them into at most one draft per page, with a cost cap and a time limit per night
 2.10.0 — a harvest run that stops says why (recorded by the plugin, shown in the panel) and its drafting cost is reported from Hermes' session store
 2.9.0 — a stale update draft is re-derived onto the page as it is now and offered for a fresh approval, instead of only being refused
 2.7.2 — the setup check expects only the agents listed in `drift.agents`
