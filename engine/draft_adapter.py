@@ -66,82 +66,101 @@ class DraftAdapter:
     def submit(self, name: str, metadata: dict, source: str | None) -> str:
         try:
             identifier(name)
-            allowed = {'kind', 'target', 'summary', 'why', 'evidence_ids', 'base_sha256', 'evidence_requests'}
-            if not isinstance(metadata, dict) or set(metadata) - allowed:
-                raise DraftRefused('Unsupported candidate fields')
-            if metadata.get('kind') not in ('new', 'update', 'retire') or not isinstance(metadata.get('target'), str) or not NAME_RE.fullmatch(metadata['target']):
-                raise DraftRefused('Invalid candidate kind or target')
-            for field in ('summary', 'why'):
-                if not isinstance(metadata.get(field), str) or not 1 <= len(metadata[field]) <= 2000:
-                    raise DraftRefused(f'Invalid {field}')
-            if not isinstance(metadata.get('evidence_ids'), list):
-                raise DraftRefused('Invalid evidence identifiers')
-            target = checked_path(self.wiki, f"raw/sources/{metadata['target']}")
-            base_bytes = target.read_bytes() if target.is_file() else None
-            base = hashlib.sha256(base_bytes).hexdigest() if base_bytes is not None else None
-            if metadata['kind'] == 'new' and target.exists():
-                raise DraftRefused('New target already exists')
-            if metadata['kind'] != 'new' and (base is None or metadata.get('base_sha256') != base):
-                raise DraftRefused('Update or retirement requires the exact current base hash')
-            try:
-                requested = {r['id'] for r in evidence_requests.requests_of(metadata)}
-                evidence_requests.check_new_ids(self.wiki, evidence_requests.requests_of(metadata))
-            except evidence_requests.RequestRefused as exc:
-                raise DraftRefused(str(exc)) from exc
-            if requested and metadata['kind'] == 'retire':
-                raise DraftRefused('A retirement cannot request evidence')
-            retained = [value for value in metadata['evidence_ids'] if value not in requested]
-            if retained:
-                self._retained_only(metadata, base_bytes, retained)
-            if metadata['kind'] == 'retire':
-                if source is not None:
-                    raise DraftRefused('Retirement cannot include replacement text')
-            elif not isinstance(source, str) or len(source.encode('utf-8')) > 262144 or check_format(source):
-                raise DraftRefused('Invalid or oversized proposed source')
-            if metadata['kind'] != 'retire':
-                try:
-                    validate_source_citations(source, metadata['evidence_ids'])
-                except Refused as exc:
-                    raise DraftRefused(RETAINED_ONLY + f' ({exc})') from exc
-                refusals = content_refusals(source, base_bytes.decode('utf-8') if base_bytes is not None else '')
-                if refusals:
-                    raise DraftRefused('Approval would refuse this draft; fix it and submit again: ' + ' | '.join(refusals))
-            folder = checked_path(self.inbox, f'{self.run_id}/candidates/{name}')
-            encoded = (json.dumps(metadata, sort_keys=True, separators=(',', ':')) + '\n').encode()
-            source_bytes = source.encode() if source is not None else None
-            if folder.exists():
-                if (folder / 'candidate.json').read_bytes() != encoded or ((folder / 'source.md').read_bytes() if (folder / 'source.md').exists() else None) != source_bytes:
-                    raise DraftRefused('Existing draft is immutable; submit a new candidate name')
-                return f'{self.run_id}/{name}'
-            folder.parent.mkdir(parents=True, exist_ok=True)
-            folder.mkdir()
-            if source_bytes is not None:
-                with (folder / 'source.md').open('xb') as f:
-                    f.write(source_bytes)
-            if metadata['kind'] == 'update':
-                with (folder / 'base.md').open('xb') as f:
-                    f.write(base_bytes)
-            with (folder / 'candidate.json').open('xb') as f:
-                f.write(encoded)
+            base_bytes = check_draft(self.wiki, checked_path(self.run, 'candidates'), metadata, source)
+            store_draft(checked_path(self.inbox, f'{self.run_id}/candidates/{name}'), metadata, source, base_bytes)
             return f'{self.run_id}/{name}'
         except (PathRefused, OSError, ValueError) as exc:
             raise DraftRefused(str(exc)) from exc
 
-    def _retained_only(self, metadata: dict, base_bytes: bytes | None, ids: list[str]) -> None:
-        """Evidence ids without a request are admitted only as evidence the exact current target already cites."""
-        if metadata['kind'] != 'update' or base_bytes is None:
-            raise DraftRefused(RETAINED_ONLY)
+
+def check_draft(wiki: Path, candidates: Path, metadata: dict, source: str | None) -> bytes | None:
+    """Every check a draft must pass before it is stored, wherever it comes from (the constrained
+    drafting job or the per-conversation merger). Returns the current target's bytes (None for new).
+    `candidates` is the folder whose evidence copies a retained citation may be bound to."""
+    try:
+        allowed = {'kind', 'target', 'summary', 'why', 'evidence_ids', 'base_sha256', 'evidence_requests'}
+        if not isinstance(metadata, dict) or set(metadata) - allowed:
+            raise DraftRefused('Unsupported candidate fields')
+        if metadata.get('kind') not in ('new', 'update', 'retire') or not isinstance(metadata.get('target'), str) or not NAME_RE.fullmatch(metadata['target']):
+            raise DraftRefused('Invalid candidate kind or target')
+        for field in ('summary', 'why'):
+            if not isinstance(metadata.get(field), str) or not 1 <= len(metadata[field]) <= 2000:
+                raise DraftRefused(f'Invalid {field}')
+        if not isinstance(metadata.get('evidence_ids'), list):
+            raise DraftRefused('Invalid evidence identifiers')
+        target = checked_path(wiki, f"raw/sources/{metadata['target']}")
+        base_bytes = target.read_bytes() if target.is_file() else None
+        base = hashlib.sha256(base_bytes).hexdigest() if base_bytes is not None else None
+        if metadata['kind'] == 'new' and target.exists():
+            raise DraftRefused('New target already exists')
+        if metadata['kind'] != 'new' and (base is None or metadata.get('base_sha256') != base):
+            raise DraftRefused('Update or retirement requires the exact current base hash')
         try:
-            lines, table = evidence_store._evidence_texts(base_bytes.decode('utf-8'))
-        except UnicodeError as exc:
-            raise DraftRefused('Current target is not readable text') from exc
-        retained = evidence_store.cited_ids(lines + table)
-        if not set(ids) <= retained:
-            raise DraftRefused(RETAINED_ONLY)
-        try:
-            validate_evidence_bindings(self.wiki, checked_path(self.run, 'candidates'), ids)
-        except (Refused, PathRefused) as exc:
-            raise DraftRefused(f'{RETAINED_ONLY} ({exc})') from exc
+            requested = {r['id'] for r in evidence_requests.requests_of(metadata)}
+            evidence_requests.check_new_ids(wiki, evidence_requests.requests_of(metadata))
+        except evidence_requests.RequestRefused as exc:
+            raise DraftRefused(str(exc)) from exc
+        if requested and metadata['kind'] == 'retire':
+            raise DraftRefused('A retirement cannot request evidence')
+        retained = [value for value in metadata['evidence_ids'] if value not in requested]
+        if retained:
+            _retained_only(wiki, candidates, metadata, base_bytes, retained)
+        if metadata['kind'] == 'retire':
+            if source is not None:
+                raise DraftRefused('Retirement cannot include replacement text')
+        elif not isinstance(source, str) or len(source.encode('utf-8')) > 262144 or check_format(source):
+            raise DraftRefused('Invalid or oversized proposed source')
+        if metadata['kind'] != 'retire':
+            try:
+                validate_source_citations(source, metadata['evidence_ids'])
+            except Refused as exc:
+                raise DraftRefused(RETAINED_ONLY + f' ({exc})') from exc
+            refusals = content_refusals(source, base_bytes.decode('utf-8') if base_bytes is not None else '')
+            if refusals:
+                raise DraftRefused('Approval would refuse this draft; fix it and submit again: ' + ' | '.join(refusals))
+        return base_bytes
+    except (PathRefused, OSError, ValueError) as exc:
+        raise DraftRefused(str(exc)) from exc
+
+
+def store_draft(folder: Path, metadata: dict, source: str | None, base_bytes: bytes | None) -> None:
+    """Store a checked draft as an immutable candidate folder; the same draft again is a no-op."""
+    try:
+        encoded = (json.dumps(metadata, sort_keys=True, separators=(',', ':')) + '\n').encode()
+        source_bytes = source.encode() if source is not None else None
+        if folder.exists():
+            if (folder / 'candidate.json').read_bytes() != encoded or ((folder / 'source.md').read_bytes() if (folder / 'source.md').exists() else None) != source_bytes:
+                raise DraftRefused('Existing draft is immutable; submit a new candidate name')
+            return
+        folder.parent.mkdir(parents=True, exist_ok=True)
+        folder.mkdir()
+        if source_bytes is not None:
+            with (folder / 'source.md').open('xb') as f:
+                f.write(source_bytes)
+        if metadata['kind'] == 'update':
+            with (folder / 'base.md').open('xb') as f:
+                f.write(base_bytes)
+        with (folder / 'candidate.json').open('xb') as f:
+            f.write(encoded)
+    except OSError as exc:
+        raise DraftRefused(str(exc)) from exc
+
+
+def _retained_only(wiki: Path, candidates: Path, metadata: dict, base_bytes: bytes | None, ids: list[str]) -> None:
+    """Evidence ids without a request are admitted only as evidence the exact current target already cites."""
+    if metadata['kind'] != 'update' or base_bytes is None:
+        raise DraftRefused(RETAINED_ONLY)
+    try:
+        lines, table = evidence_store._evidence_texts(base_bytes.decode('utf-8'))
+    except UnicodeError as exc:
+        raise DraftRefused('Current target is not readable text') from exc
+    retained = evidence_store.cited_ids(lines + table)
+    if not set(ids) <= retained:
+        raise DraftRefused(RETAINED_ONLY)
+    try:
+        validate_evidence_bindings(wiki, candidates, ids)
+    except (Refused, PathRefused) as exc:
+        raise DraftRefused(f'{RETAINED_ONLY} ({exc})') from exc
 
 
 def main(argv=None) -> int:

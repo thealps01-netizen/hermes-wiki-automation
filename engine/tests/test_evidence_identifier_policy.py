@@ -93,6 +93,22 @@ class EvidenceIdentifierPolicyTests(unittest.TestCase):
                 with self.assertRaisesRegex(Refused, 'citations.*evidence_ids'):
                     validate_source_citations(text, ids + ['extra-code'])
 
+    def test_a_date_is_never_an_evidence_id(self):
+        # Real wiki pages: a date after an id or between clauses explains the evidence; no evidence id is a
+        # bare date (a new id that is one is refused at request time), so it cannot hide a citation.
+        from wiki_candidates import validate_source_citations
+        cases = (
+            ('wiki-embedding-benchmark-2026-10-06 (own measurement report, 2026-10-06).', ['wiki-embedding-benchmark-2026-10-06']),
+            ('none (owner-directed, 2026-10-25); 2026-09-16 trial: none (observation).', []),
+            ('real-code, run 2026-10-08 and 2026-10-09', ['real-code']),
+        )
+        for value, ids in cases:
+            with self.subTest(value=value):
+                text = f'Evidence: {value}\n'
+                validate_source_citations(text, ids)
+                with self.assertRaisesRegex(Refused, 'citations.*evidence_ids'):
+                    validate_source_citations(text, ids + ['2026-10-06'])
+
     def test_multiline_placeholder_is_a_complete_placeholder(self):
         value = 'none (measurement: oracle tests, 2026-10-10,\n  three characters).'
         self.assertTrue(evidence_store._no_evidence(value))

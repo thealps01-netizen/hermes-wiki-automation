@@ -29,7 +29,7 @@ import shutil
 import urllib.parse
 from pathlib import Path
 
-from evidence_store import ID_TOKEN
+from evidence_store import DATE, ID_TOKEN
 from workflow_paths import PathRefused, checked_path
 
 MAX_REQUESTS = 5
@@ -86,7 +86,8 @@ def requests_of(metadata: dict) -> list[dict]:
         if not isinstance(request, dict) or set(request) - FIELDS or not {'id', 'supports', 'passages'} <= set(request):
             raise RequestRefused('An evidence request has id, supports, passages and one of github or url')
         value = request['id']
-        if not isinstance(value, str) or len(value) > 80 or not ID_TOKEN.fullmatch(value) or value in seen:
+        if not isinstance(value, str) or len(value) > 80 or not ID_TOKEN.fullmatch(value) or DATE.fullmatch(value) \
+                or value in seen:
             raise RequestRefused('An evidence request needs its own new id of lowercase words joined by hyphens')
         if not isinstance(ids, list) or value not in ids:
             raise RequestRefused(f'Requested evidence {value} must also be listed in evidence_ids')

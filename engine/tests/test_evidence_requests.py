@@ -158,6 +158,8 @@ class EvidenceRequestTests(unittest.TestCase):
             'short passage': (dict(evidence_requests=changed(passages=['short'])), SOURCE),
             'no passage': (dict(evidence_requests=changed(passages=[])), SOURCE),
             'extra field': (dict(evidence_requests=changed(note='x')), SOURCE),
+            'a date as id': (dict(evidence_ids=['2026-10-06'], evidence_requests=changed(id='2026-10-06')),
+                             SOURCE.replace('fixture-pin-code', '2026-10-06')),
             'unrequested new id': (dict(evidence_ids=['fixture-pin-code', 'other-code']),
                                    SOURCE + 'Evidence: other-code\n'),
         }
@@ -168,6 +170,15 @@ class EvidenceRequestTests(unittest.TestCase):
                     self.adapter.submit('fixture', {**self.metadata, **fields}, source)
         self.assertEqual(self.files(), before)
         self.assertFalse((self.run / 'candidates').exists())
+
+    def test_a_new_evidence_id_cannot_be_a_bare_date(self):
+        import evidence_requests
+        with self.assertRaises(evidence_requests.RequestRefused):
+            evidence_requests.requests_of({'evidence_ids': ['2026-10-06'],
+                                           'evidence_requests': [{**REQUEST, 'id': '2026-10-06'}]})
+        self.assertEqual(evidence_requests.requests_of({'evidence_ids': ['run-2026-10-06'],
+                                                        'evidence_requests': [{**REQUEST, 'id': 'run-2026-10-06'}]})[0]['id'],
+                         'run-2026-10-06')
 
     def test_a_retirement_cannot_request_evidence(self):
         import draft_adapter
