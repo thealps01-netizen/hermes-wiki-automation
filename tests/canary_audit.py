@@ -338,6 +338,18 @@ CANARIES: list[tuple[str, Path, str | None, str, int, str]] = [
     ("removed: a view name in the bundle", JS, "'Good service on the whole line'",
      "'Good service on the whole Nexus line'", _count("'Good service on the whole line'"),
      "the bundle names the removed view 'Nexus'"),
+    # ── 2.11.0: the sphere ──────────────────────────────────────────────────────────────────────
+    ("sphere: the /wiki/map route exists", API, '@router.get("/wiki/map")', '@router.get("/wiki/globe")', 1,
+     "the route '/wiki/map' is missing"),
+    ("sphere: the engine's graph rule is used", API, "_graph_rule(paths.engine_dir)", "_own_rule(paths.engine_dir)", 1,
+     "no longer reads the engine's graph rule"),
+    ("sphere: its read never raises the alert bar", JS, "  add(t('wa.metroWhatChecks'), watch.error)\n",
+     "  add(t('wa.metroWhatChecks'), watch.error)\n  add('', reads.map.error)\n", 1,
+     "the sphere's read reaches metroFailures"),
+    ("sphere: the canvas is a labelled image", JS, "ref: canvasRef, role: 'img'", "ref: canvasRef", 1,
+     "no longer an image with a label"),
+    ("sphere: a missing page is a pressable button", JS, "className: 'wa-globe-miss', 'aria-pressed'",
+     "className: 'wa-globe-miss', 'data-pressed'", 1, "no longer a pressable button"),
     # ── Metro (2.5.0): the DOM contract, the priority keys and the insert-only composer ────────────
     ("metro: the root is the query container", JS, ".wa-metro{", ".wa-metro-gone{", _count(".wa-metro{"),
      "`.wa-metro{...container-type:inline-size}` is gone"),

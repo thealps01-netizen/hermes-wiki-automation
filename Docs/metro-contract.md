@@ -42,15 +42,26 @@ One view, no tabs. Top to bottom:
    explanation, and at most one button. Its button opens the matching detail. With nothing to
    report, the bar says `Good service on the whole line` in green (m-05). It never says that when a
    read failed.
-4. **Detail panel** (at most one, under the map). It opens when a station, a branch, the alert
+4. **Your wiki** (2.11.0, the approved modern draft `Docs/directions/modern/overview.html`). With no
+   detail open it sits under the alert bar; it also opens the Wiki detail. One card: on the left a
+   label, a heading (`N pages your wiki links to do not exist yet.` or `Every page your wiki links to
+   exists.`), the page count and how many changed this week, the three missing pages named most (each
+   a button that picks out the pages naming it; pressed again it lets go) plus `+N more missing pages`,
+   and a key; on the right a canvas sphere with one dot per page, banded by folder, lit when the page
+   changed in the last 7 days, the missing pages as dashed rings outside it and the pages naming them
+   in orange. With more than 12 naming pages no link curves are drawn. Dragging turns the sphere; it
+   never turns by itself. Its read (`GET /wiki/map`) is not one of the reads that raise the alert bar:
+   a failure shows its error inside the card.
+5. **Detail panel** (at most one, under the map). It opens when a station, a branch, the alert
    button, History or Settings is clicked. It has a head strip with an icon, a title and a close
    button. Clicking the same thing again, or close, folds it. Opening a detail never moves the
    map: cards never expand in place.
 
 ## States: what each station shows
 
-Data comes from endpoints the panel already calls. No new backend route is planned. A missing fact
-is reported, not invented.
+Data comes from endpoints the panel already calls; the one route added since 2.5.0 is the read-only
+`GET /wiki/map` behind the sphere (pages with folder band, title and age in days; missing link targets
+with the pages naming them, by the engine's graph rule). A missing fact is reported, not invented.
 
 | Station | Source | ok | ask / warn / bad |
 |---|---|---|---|
@@ -112,6 +123,10 @@ It cites no path that the finding itself does not carry.
   .wa-metro-bar[data-tone="ok"|"ask"|"warn"|"bad"][data-alert="<priority key>"]
   .wa-metro-detail[data-for="wiki"|"harvest"|"review"|"line:<id>"|"history"|"settings"]
   .wa-metro-skeleton               loading
+  .wa-globe[data-wa-globe="ready"|"reading"|"unread"]   the sphere card
+    canvas.wa-globe-canvas[role="img"][aria-label]     one dot per page
+    button.wa-globe-miss[aria-pressed]                 a missing page; picks out the pages naming it
+  .wa-metro-detail[data-notch]     the notch that points back at the open station or branch
 ```
 
 Priority keys: `read-failed`, `engine`, `harvest-failed`, `job-broken`, `drafts`, `problems`,
@@ -135,8 +150,10 @@ In addition:
   - Reading text stays on `--ui-text-primary` / `--ui-text-secondary`.
   - State colour goes on stops, stripes, pills and lines only.
   - WCAG AA is measured by the preview gate.
-- **No ornament.** No hexagons, glows or cut corners. The only motion allowed:
+- **No ornament.** No hexagons, glows or cut corners. Lines and stops are 2 px; the cards, the alert
+  bar and the details share one corner radius (`--wa-r`). The only motion allowed:
   - the 120 ms colour/opacity feedback;
+  - the sphere turning while the owner drags it (never by itself);
   - the dash-offset march on the branch lines while harvest runs;
   - `prefers-reduced-motion` turns the march off.
 - **Narrow pane.** At 352 px nothing overflows, and the stations stay readable.

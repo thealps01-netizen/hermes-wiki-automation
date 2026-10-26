@@ -196,6 +196,25 @@ function watchdogPayload(c) {
   }
 }
 
+/** The `/wiki/map` answer: 334 pages in four folder bands, dated by a fixed spread; with wiki problems,
+ * three link targets are missing and four pages name them. */
+function wikiMapPayload(c) {
+  const bands = [['concepts', 160], ['entities', 110], ['sources', 56], ['other', 8]]
+  const pages = []
+  for (const [band, n] of bands) {
+    for (let i = 0; i < n; i += 1) {
+      pages.push({ id: `${band}-page-${i + 1}`, band, title: `${band[0].toUpperCase()}${band.slice(1)} page ${i + 1}`,
+        age: (i * 37 + band.length * 11) % 60 })
+    }
+  }
+  const missing = c.problems ? [
+    { name: 'hermes-standing-behaviour-rules', count: 2, holders: ['concepts-page-4', 'sources-page-9'] },
+    { name: 'hermes-plugin-vetting', count: 1, holders: ['entities-page-12'] },
+    { name: 'evaluating-skills-not-just-agents', count: 1, holders: ['concepts-page-77'] }
+  ] : []
+  return { ok: true, pages, truncated: false, missing_total: missing.length, holders: c.problems ? 4 : 0, missing }
+}
+
 /** Every condition a state can combine. Two of them at once is how the priority order is proven. */
 export function world(conditions = {}) {
   const c = { ...conditions }
@@ -221,6 +240,7 @@ export function world(conditions = {}) {
     unreadable: c.unreadableDraft && c.drafts ? candidates()[0].ref : null,
     health: healthPayload(c),
     watchdog: watchdogPayload(c),
+    wikiMap: wikiMapPayload(c),
     runs: runs(),
     fail,
     pending: Boolean(c.pending),
@@ -306,6 +326,7 @@ export function makeRest(w, { throwOn = [] } = {}) {
       return w.health && typeof w.health === 'object' ? { ...w.health, window: win } : w.health
     }
     if (bare === '/health/watchdog') return w.watchdog
+    if (bare === '/wiki/map') return w.wikiMap
     if (bare === '/runs') return w.runs
     if (bare === '/automation/candidates') {
       return { ok: true, root: '/srv', scanned: 102, skipped: 1, truncated: false,

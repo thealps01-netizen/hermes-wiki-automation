@@ -568,6 +568,38 @@ await guard('M9', async () => {
   if (!shownSec('install') || !/engine|Engine/.test(txt(s.querySelector('[data-sec="install"]')))) fail('settings: the automation files value did not open the engine install (InstallCard)')
 })
 
+// ── M10 — the sphere (2.11.0): home and Wiki detail, its read never raises the alert bar ─────────
+mark = problems.length; console.log('M10 the sphere')
+await guard('M10', async () => {
+  const globe = host => host.querySelector('.wa-globe')
+  let { host } = await mount(world({}))
+  if (globe(host)?.dataset.waGlobe !== 'ready') fail(`sphere: the healthy home screen shows no ready sphere: ${globe(host)?.dataset.waGlobe}`)
+  if (!/Every page your wiki links to exists\./.test(txt(globe(host)))) fail('sphere: the healthy wiki does not say every linked page exists')
+  if (!/334 pages · \d+ changed this week/.test(txt(globe(host)))) fail(`sphere: the page count is not read from /wiki/map: ${txt(globe(host))}`)
+  const canvas = globe(host)?.querySelector('canvas.wa-globe-canvas[role="img"]')
+  if (!/sphere of 334 dots/.test(canvas?.getAttribute('aria-label') || '')) fail('sphere: the canvas is not a labelled image of every page')
+  await click(station(host, 'harvest'))
+  if (globe(host)) fail('sphere: it stays on screen while another detail is open')
+  ;({ host } = await mount(world({ problems: true })))
+  const miss = [...(globe(host)?.querySelectorAll('button.wa-globe-miss') || [])]
+  if (miss.length !== 3) fail(`sphere: ${miss.length} missing-page buttons, expected 3`)
+  if (!/3 pages your wiki links to do not exist yet\./.test(txt(globe(host)))) fail('sphere: the missing-page heading is wrong')
+  if (!/4 pages name them\./.test(txt(globe(host)))) fail('sphere: the naming-page count is wrong')
+  if (!txt(miss[0]).includes('hermes-standing-behaviour-rules') || !/named by 2 pages/.test(txt(miss[0]))) fail(`sphere: the first missing page is wrong: ${txt(miss[0])}`)
+  if (miss[0]?.getAttribute('aria-pressed') !== 'false') fail('sphere: a missing page is not a pressable button')
+  await click(miss[0])
+  if (globe(host)?.querySelector('button.wa-globe-miss')?.getAttribute('aria-pressed') !== 'true') fail('sphere: pressing a missing page does not pick it out')
+  await click(globe(host)?.querySelector('button.wa-globe-miss'))
+  if (globe(host)?.querySelector('button.wa-globe-miss')?.getAttribute('aria-pressed') !== 'false') fail('sphere: a second press does not let go')
+  await click(station(host, 'wiki'))
+  if (!details(host)[0]?.querySelector('.wa-metro-dbody > .wa-globe[data-wa-globe="ready"]')) fail('sphere: the Wiki detail does not open with the sphere')
+  if (host.querySelectorAll('.wa-globe').length !== 1) fail('sphere: more than one sphere on screen')
+  ;({ host } = await mount(world({ readFailed: ['/wiki/map'] })))
+  if (globe(host)?.dataset.waGlobe !== 'unread') fail('sphere: a failed /wiki/map read is not shown inside its card')
+  if (!txt(globe(host)).includes('read failed: /wiki/map')) fail('sphere: the failed read lost the backend error')
+  if (bar(host)?.dataset.alert !== 'good') fail(`sphere: a failed /wiki/map read raised the alert bar: ${bar(host)?.dataset.alert}`)
+})
+
 if (mounted) { await act(async () => mounted.root.unmount()); mounted = null }
 if (problems.length) {
   console.error(`METRO RENDER: ${problems.length} problem(s)`)

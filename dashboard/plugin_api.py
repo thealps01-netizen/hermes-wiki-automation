@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -9,6 +10,7 @@ import sqlite3
 import logging
 import subprocess
 import sys
+import time
 from collections import deque
 from pathlib import Path
 from contextvars import ContextVar
@@ -59,6 +61,8 @@ _EXPLAIN_TEXT = {
     'auto_call_failed': 'the automation checker failed: {error}',
     'auto_root_ok': 'verified',
     'auto_scan_root_bad': 'folder not found',
+    'map_no_wiki': 'the wiki folder is not verified yet, so its pages cannot be drawn',
+    'map_no_rule': "the engine's graph rule could not be loaded: {error}",
     'auto_not_folder': 'the scan root must be an absolute path to an existing folder',
     'auto_same_id': 'this folder carries the SAME project id but a different path (possibly a '
                     'copy/mirror) — making it the root degrades the backup check. Confirm to save.',
@@ -839,6 +843,88 @@ def automation():
                  "install.py", "portability_check.py"):
         info["scripts"][name] = (paths.engine_dir / name).exists()
     return info
+
+
+_MAP_PAGES = 6000
+_MAP_MISSING = 200
+_MAP_HOLDERS = 12
+_MAP_BANDS = ("concepts", "entities", "sources")
+
+
+def _graph_rule(engine_dir: Path):
+    spec = importlib.util.spec_from_file_location("wa_app_graph_rule", engine_dir / "app_graph_isolated.py")
+    if spec is None or spec.loader is None:
+        raise ImportError("app_graph_isolated.py not found")
+    rule = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rule)
+    for name in ("FRONTMATTER", "WIKILINK", "_related"):
+        if not hasattr(rule, name):
+            raise ImportError(f"app_graph_isolated.py has no {name}")
+    return rule
+
+
+def _link_name(raw: str) -> str:
+    name = str(raw).split("|")[0].split("#")[0].replace("\\", "/").split("/")[-1].strip()
+    return name[:-3] if name.lower().endswith(".md") else name
+
+
+def _resolves(name: str, index: dict) -> bool:
+    return any(alias in index for alias in (name, name.lower(), re.sub(r"\s+", "-", name.lower())))
+
+
+def _wiki_map(root: Path, rule, now: float) -> dict:
+    wiki = root / "wiki"
+    files = sorted(p for p in wiki.rglob("*.md") if p.name not in ("index.md", "log.md"))
+    pages, links = [], {}
+    for path in files[:_MAP_PAGES]:
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        parts = path.relative_to(wiki).parts
+        band = parts[0] if len(parts) > 1 and parts[0] in _MAP_BANDS else "other"
+        found = rule.FRONTMATTER.match(text)
+        front = found.group(1) if found else ""
+        named = re.search(r"^title:[ \t]*(.+)$", front, re.M)
+        title = named.group(1).strip().strip("\"'").strip() if named else ""
+        pages.append({"id": path.stem, "band": band, "title": (title or path.stem)[:160],
+                      "age": max(0, int((now - mtime) // 86400))})
+        links[path.stem] = ({_link_name(x) for x in rule.WIKILINK.findall(text)}
+                            | {_link_name(x) for x in rule._related(front)})
+    index = {}
+    for page in pages:
+        stem = page["id"]
+        for alias in (stem, stem.lower(), re.sub(r"\s+", "-", stem.lower())):
+            index.setdefault(alias, stem)
+    named_by: dict[str, set] = {}
+    for source, targets in links.items():
+        for name in targets:
+            if name and not _resolves(name, index):
+                named_by.setdefault(name, set()).add(source)
+    ordered = sorted(named_by.items(), key=lambda item: (-len(item[1]), item[0].lower()))
+    holders = set().union(*named_by.values()) if named_by else set()
+    return {"ok": True, "pages": pages, "truncated": len(files) > _MAP_PAGES, "missing_total": len(ordered),
+            "holders": len(holders),
+            "missing": [{"name": name, "count": len(by), "holders": sorted(by)[:_MAP_HOLDERS]}
+                        for name, by in ordered[:_MAP_MISSING]]}
+
+
+@router.get("/wiki/map")
+@_selected_operation
+def wiki_map():
+    paths = _engine_paths()
+    shown, detail = _config_run(["show"])
+    if shown is None:
+        return {"ok": False, "error": _unreadable(detail)}
+    root = Path(str(shown.get("project_root") or "."))
+    if (shown.get("project") or {}).get("ok") is not True or not (root / "wiki").is_dir():
+        return {"ok": False, "error": _tx("map_no_wiki")}
+    try:
+        rule = _graph_rule(paths.engine_dir)
+    except Exception as exc:
+        return {"ok": False, "error": _tx("map_no_rule", error=str(exc) or type(exc).__name__)}
+    return _wiki_map(root, rule, time.time())
 
 
 @router.post("/automation/validate")
@@ -2758,6 +2844,37 @@ def _selftest_validate_blocked() -> dict:
                      default={"ok": False, "reason": _tx("auto_unreadable")})
 
 
+def _selftest_wiki_map(tmp: Path, problems: list) -> None:
+    wiki = tmp / "map-wiki" / "wiki"
+    for folder in ("concepts", "entities", "notes"):
+        (wiki / folder).mkdir(parents=True)
+    (wiki / "concepts" / "alpha.md").write_text(
+        "---\ntitle: Alpha page\nrelated: [beta, gone-two]\n---\nSee [[Beta|the beta]] and [[gone-one#part]].\n",
+        encoding="utf-8")
+    (wiki / "entities" / "beta.md").write_text("---\nrelated:\n  - \"[[gone-one]]\"\n---\n[[concepts/alpha]]\n",
+                                                encoding="utf-8")
+    (wiki / "notes" / "gamma.md").write_text("no front matter\n", encoding="utf-8")
+    (wiki / "index.md").write_text("[[nowhere]]\n", encoding="utf-8")
+    before = {p: p.read_bytes() for p in wiki.rglob("*") if p.is_file()}
+    try:
+        rule = _graph_rule(Path(__file__).resolve().parents[1] / "engine")
+    except Exception as exc:
+        problems.append(f"the engine graph rule could not be loaded for /wiki/map: {exc}")
+        return
+    shown = _wiki_map(wiki.parent, rule, time.time())
+    pages = {p["id"]: p for p in shown.get("pages", [])}
+    if set(pages) != {"alpha", "beta", "gamma"} or pages["alpha"]["band"] != "concepts" \
+            or pages["gamma"]["band"] != "other" or pages["alpha"]["title"] != "Alpha page" \
+            or pages["gamma"]["title"] != "gamma" or pages["beta"]["age"] != 0:
+        problems.append(f"/wiki/map pages are wrong: {shown.get('pages')}")
+    if shown.get("missing") != [{"name": "gone-one", "count": 2, "holders": ["alpha", "beta"]},
+                                {"name": "gone-two", "count": 1, "holders": ["alpha"]}] \
+            or shown.get("missing_total") != 2 or shown.get("holders") != 2 or shown.get("truncated") is not False:
+        problems.append(f"/wiki/map missing pages are wrong: {shown}")
+    if {p: p.read_bytes() for p in wiki.rglob("*") if p.is_file()} != before:
+        problems.append("/wiki/map wrote into the wiki")
+
+
 def _selftest() -> int:
     import tempfile
 
@@ -2765,6 +2882,7 @@ def _selftest() -> int:
     problems = []
     tmp = Path(tempfile.mkdtemp(prefix="wiki-auto-selftest-"))
     try:
+        _selftest_wiki_map(tmp, problems)
         fake_audit = tmp / "audit"
         fake_audit.mkdir()
         keep, AUDIT_DIR = AUDIT_DIR, fake_audit

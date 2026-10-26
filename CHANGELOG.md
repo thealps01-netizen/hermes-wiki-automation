@@ -3,6 +3,28 @@
 Notable changes to the Wiki Automation panel. The version is carried in three places — `plugin.yaml`,
 `dashboard/manifest.json` and the top heading below — and the static audit fails when they disagree.
 
+## 2.11.0
+
+Engine `d03321b` (unchanged). The panel gets the modern look the owner approved
+(`Docs/directions/modern/`), and the home screen shows the wiki itself.
+
+### Added
+* **Your wiki as a sphere.** With no detail open, and at the top of the Wiki detail, every page of the
+  wiki is one dot on a sphere, banded by its folder (concepts, entities, sources, other) and lit when
+  it changed in the last 7 days. Link targets that do not exist float outside the sphere as dashed
+  rings; the pages that name them are orange. The three named most are listed beside it; pressing
+  one (or focusing it with the keyboard) picks out the pages that name it. Drag turns the sphere,
+  pointing at a dot shows its page. The data comes from a new read-only route, `GET /wiki/map`, which
+  reads the verified wiki folder with the engine's own graph rule (`app_graph_isolated.py`: links are
+  `[[wikilinks]]` plus `related:` entries). A failed read shows its error inside the sphere's card and
+  never raises the alert bar.
+
+### Changed
+* **Modern line and details.** The line sits on its own card; the lines and stops are thin (2 px), the
+  stations are quiet buttons that tint when open, the branch lines carry a `Conversations` heading, and
+  an open station's detail points back at it with a small notch. Cards, the alert bar and details share
+  one corner radius. Every state, priority and detail is unchanged.
+
 ## 2.10.0
 
 Engine `d03321b`. A harvest run that stops says why, and its cost is reported.

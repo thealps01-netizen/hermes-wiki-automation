@@ -4126,7 +4126,7 @@ for (const x of stub.calls.posts) {
 for (const x of stub.calls.gets) {
   if (!(x.startsWith('/automation') || x.startsWith('/runs') || x.startsWith('/jobs')
     || x.startsWith('/candidates') || x.startsWith('/health/jobs') || x === '/harvest/status'
-    || x === '/owner/recoverable' || x === '/owner/activation' || x === '/engine/status')) {
+    || x === '/owner/recoverable' || x === '/owner/activation' || x === '/engine/status' || x === '/wiki/map')) {
     fail(`unexpected read route: ${x}`)
   }
 }

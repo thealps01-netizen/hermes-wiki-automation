@@ -1770,6 +1770,28 @@ def check_health_routes() -> None:
                 "and must not be re-invented in the panel")
 
 
+def check_wiki_map() -> None:
+    """The sphere (2.11.0) reads `GET /wiki/map` through the engine's own graph rule, its read never
+    raises the alert bar, and its marks stay reachable: the canvas is an image with a label and each
+    missing page is a pressable button."""
+    api = read(API)
+    js = read(JS)
+    if '@router.get("/wiki/map")' not in api:
+        _report("plugin_api.py: the route '/wiki/map' is missing — the sphere calls it")
+    if '"app_graph_isolated.py"' not in api or "_graph_rule(paths.engine_dir)" not in api:
+        _report("plugin_api.py: /wiki/map no longer reads the engine's graph rule (app_graph_isolated.py) — "
+                "a second link rule would disagree with the app")
+    start = js.find("function metroFailures(")
+    body = js[start:js.find("\nfunction ", start + 1)] if start >= 0 else ""
+    if not body or re.search(r"\bmap\b", body):
+        _report("plugin.js: the sphere's read reaches metroFailures — a failed /wiki/map would raise the "
+                "alert bar instead of staying inside its card")
+    if "className: 'wa-globe-canvas', ref: canvasRef, role: 'img'" not in js or "t('wa.globeAria'" not in js:
+        _report("plugin.js: the sphere's canvas is no longer an image with a label")
+    if "className: 'wa-globe-miss', 'aria-pressed'" not in js:
+        _report("plugin.js: a missing page is no longer a pressable button with aria-pressed")
+
+
 def main() -> int:
     check_no_comments()
     check_line_length()
@@ -1805,6 +1827,7 @@ def main() -> int:
     check_css_vars()
     check_removed_composition()
     check_metro_contract()
+    check_wiki_map()
     check_no_native_title_dom()
     check_health_text_table()
     check_retired_finding()

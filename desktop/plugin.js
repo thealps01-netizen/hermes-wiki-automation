@@ -260,6 +260,30 @@ const BUNDLES = {
       metroWhatRuns: 'Run history',
       metroWhatSettings: 'Settings',
       metroWiki: 'Wiki',
+      metroConversations: 'Conversations',
+      globeLabel: 'Your wiki',
+      globeLead: (n, recent) => `${plural(n, '1 page', `${n} pages`)} · ${recent} changed this week`,
+      globeAllFound: 'Every page your wiki links to exists.',
+      globeMissingHead: n => plural(n, '1 page your wiki links to does not exist yet.',
+        `${n} pages your wiki links to do not exist yet.`),
+      globeHolders: k => plural(k, '1 page names them.', `${k} pages name them.`),
+      globeNamedBy: k => plural(k, 'named by 1 page', `named by ${k} pages`),
+      globeMore: n => plural(n, '1 more missing page', `${n} more missing pages`),
+      globeMoreBy: 'named by other pages',
+      globeKeyRecent: n => `changed this week · ${n}`,
+      globeKeyOlder: n => `older · ${n}`,
+      globeKeyNames: n => `names a missing page · ${n}`,
+      globeKeyMissing: n => `missing page · ${n}`,
+      globeBandWarn: n => `${n} name a missing page`,
+      globeAge: d => (d === 0 ? 'changed today' : d === 1 ? 'changed yesterday' : `changed ${d} days ago`),
+      globeNames: name => `names ${name}`,
+      globeAria: (n, bands, recent, holders, missing) => `Your wiki as a sphere of ${n} dots, one per page, `
+        + `banded by folder: ${bands}. ${recent} changed in the last 7 days. ${holders} pages name one of `
+        + `${missing} missing pages, which float outside the sphere.`,
+      globeReading: 'Reading your wiki pages…',
+      globeUnread: 'Your wiki pages could not be read.',
+      globeTruncated: n => `Only the first ${n} pages are drawn.`,
+      globeDrag: 'Drag the sphere to turn it. Point at a dot to see its page.',
       metroWikiHead: pages => `Wiki · ${pages}`,
       metroWikiStation: 'Wiki station',
       folioDocument: 'Proposed change',
@@ -787,6 +811,11 @@ const api = {
   save: (project_root, force) => ctxRef.rest('/automation/settings',
     { method: 'POST', body: { project_root, force: Boolean(force) } }),
   jobs: () => ctxRef.rest('/jobs'),
+  wikiMap: async () => {
+    const res = await ctxRef.rest('/wiki/map')
+    if (!res || res.ok !== true) throw new Error(res?.error || BUNDLES.en.wa.globeUnread)
+    return res
+  },
   engineStatus: () => ctxRef.rest('/engine/status'),
   harvestStatus: async () => {
     const res = await ctxRef.rest('/harvest/status')
@@ -1558,6 +1587,79 @@ const STYLE = `
 .wa-desk-more>summary .codicon{transition:${move('hover', 'transform')}}
 .wa-desk-more[open]>summary .codicon{transform:rotate(90deg)}
 .wa-desk-more>.fl-review{margin-top:10px}
+.wa-metro{--wa-r:14px}
+.wa-metro-head{padding:16px 28px;border-bottom:0}
+.wa-metro-head h1{font-size:15px;letter-spacing:-.01em}
+.wa-metro-head>.codicon{color:var(--ui-accent)}
+.wa-metro-map{margin:4px 28px 18px;padding:22px 26px 20px;border:1px solid var(--ui-stroke-tertiary);border-radius:var(--wa-r);background:var(--wa-card)}
+.wa-metro-map.wa-metro-skeleton{border-style:dashed}
+.wa-metro-title{font-size:20px;font-weight:650;letter-spacing:-.02em}
+.wa-metro-subtitle{font-size:13px;letter-spacing:0}
+.wa-metro-grid{margin-top:18px;min-height:180px}
+.wa-metro-wire{stroke-width:2}
+.wa-metro-wire[data-kind="line"],.wa-metro-map[data-dir="v"] .wa-metro-wire[data-kind="line"]{stroke-width:2}
+.wa-metro-wire[data-kind="line"][data-state="run"]{stroke-width:2.5;stroke-dasharray:8 6}
+.wa-metro-wire[data-kind="seg"][data-state="off"]{stroke-dasharray:2 8}
+.wa-metro-group{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ui-text-secondary)}
+.wa-metro-line-dot{width:10px;height:10px;border-width:2px}
+.wa-metro-line-name{font-size:13px;font-weight:600}
+.wa-metro-station{padding:12px 10px 14px;border-radius:12px;transition:${move('hover', 'background-color')}}
+.wa-metro-station:hover{background:color-mix(in srgb,var(--ui-text-primary) 5%,transparent)}
+.wa-metro-station[aria-pressed="true"]{background:color-mix(in srgb,var(--ui-accent) 10%,transparent)}
+.wa-metro-station[aria-pressed="true"] .wa-metro-name{text-decoration:none}
+.wa-metro-station[aria-pressed="true"] .wa-metro-stop{outline-width:1.5px;outline-offset:4px}
+.wa-metro-stop{width:16px;height:16px;border-width:2px}
+.wa-metro-station[data-state="warn"] .wa-metro-stop{box-shadow:0 0 0 4px color-mix(in srgb,var(--ui-orange) 18%,transparent)}
+.wa-metro-station[data-state="bad"] .wa-metro-stop{box-shadow:0 0 0 4px color-mix(in srgb,var(--ui-red) 18%,transparent)}
+.wa-metro-station[data-state="ask"] .wa-metro-stop{box-shadow:0 0 0 4px color-mix(in srgb,var(--ui-accent) 20%,transparent)}
+.wa-metro-name{font-size:14px;font-weight:650;letter-spacing:-.01em}
+.wa-metro-bone[data-shape="stop"]{width:16px;height:16px}
+.wa-metro-bar{margin:0 28px 18px;border-radius:var(--wa-r);border-left-width:3px}
+.wa-metro-detail{margin:0 28px 24px;border-radius:var(--wa-r);position:relative;overflow:visible;background:var(--wa-card)}
+.wa-metro-dhead{border-radius:var(--wa-r) var(--wa-r) 0 0;padding:12px 14px 12px 20px}
+.wa-metro-dhead h2{font-size:15px;font-weight:650;letter-spacing:-.01em}
+.wa-metro-dbody{padding:18px 20px}
+.wa-metro-detail[data-notch]::before{content:"";position:absolute;top:-7px;left:var(--wa-notch);width:12px;height:12px;
+  box-sizing:border-box;transform:translateX(-50%) rotate(45deg);
+  background:color-mix(in srgb,var(--ui-bg-elevated) 60%,var(--wa-card));
+  border-left:1px solid var(--ui-stroke-secondary);border-top:1px solid var(--ui-stroke-secondary)}
+.wa-globe{margin:0 28px 24px;display:grid;grid-template-columns:minmax(220px,1fr) minmax(0,1.6fr);gap:12px 28px;
+  padding:22px 26px;border:1px solid var(--ui-stroke-tertiary);border-radius:var(--wa-r);background:var(--wa-card);min-width:0}
+.wa-metro-dbody>.wa-globe{margin:0 0 6px;padding:0 0 16px;border:0;border-bottom:1px solid var(--ui-stroke-tertiary);border-radius:0;background:transparent}
+.wa-globe-copy{display:flex;flex-direction:column;gap:10px;min-width:0}
+.wa-globe-label{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ui-text-secondary)}
+.wa-globe-head{margin:0;font-size:20px;font-weight:650;letter-spacing:-.02em;line-height:1.25;overflow-wrap:anywhere}
+.wa-globe-lead{margin:0;font-size:13px;color:var(--ui-text-secondary)}
+.wa-globe-list{list-style:none;margin:2px 0 0;padding:0;display:flex;flex-direction:column;gap:2px}
+.wa-globe-miss{font:inherit;color:inherit;text-align:left;background:transparent;border:0;box-sizing:border-box;width:100%;display:grid;
+  grid-template-columns:24px minmax(0,1fr);gap:2px 10px;align-items:center;padding:8px 10px;border-radius:10px;cursor:pointer;
+  transition:${move('hover', 'background-color')}}
+.wa-globe-miss:hover,.wa-globe-miss[aria-pressed="true"]{background:color-mix(in srgb,var(--ui-orange) 12%,transparent)}
+.wa-globe-miss:focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px}
+.wa-globe-n{grid-row:span 2;width:24px;height:24px;box-sizing:border-box;border-radius:50%;border:1.5px dashed var(--ui-orange);
+  display:grid;place-items:center;font-size:12px;font-weight:600}
+.wa-globe-name{font-family:var(--dt-font-mono,monospace);font-size:12.5px;font-weight:600;overflow-wrap:anywhere}
+.wa-globe-by{font-size:12px;color:var(--ui-text-secondary);overflow-wrap:anywhere}
+.wa-globe-key{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--ui-text-secondary);margin-top:auto;padding-top:6px}
+.wa-globe-key span{display:inline-flex;align-items:center;gap:6px}
+.wa-globe-key i{display:inline-block;width:8px;height:8px;box-sizing:border-box;border-radius:50%;background:var(--ui-text-primary)}
+.wa-globe-key i[data-k="older"]{opacity:.3}
+.wa-globe-key i[data-k="names"]{background:var(--ui-orange)}
+.wa-globe-key i[data-k="missing"]{background:transparent;border:1.5px dashed var(--ui-orange)}
+.wa-globe-hint{margin:0;font-size:12px;color:var(--ui-text-secondary)}
+.wa-globe-stage{position:relative;min-height:440px;min-width:0}
+.wa-globe-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+.wa-globe-canvas[data-drag]{cursor:grabbing}
+.wa-globe-band{position:absolute;transform:translateY(-50%);display:flex;flex-direction:column;gap:1px;font-size:12px;
+  color:var(--ui-text-secondary);white-space:nowrap;pointer-events:none}
+.wa-globe-band b{color:var(--ui-text-primary);font-weight:600;margin-right:6px}
+.wa-globe-band [data-warn]{display:inline-flex;align-items:center;gap:6px}
+.wa-globe-band [data-warn]::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ui-orange)}
+.wa-globe-ring{position:absolute;transform:translate(-50%,-50%);font-size:12px;font-weight:600;pointer-events:none}
+.wa-globe-tip{position:absolute;transform:translate(-50%,calc(-100% - 12px));padding:6px 10px;border-radius:8px;z-index:2;
+  background:var(--ui-bg-elevated);border:1px solid var(--ui-stroke-secondary);font-size:12px;pointer-events:none;
+  max-width:280px;display:flex;flex-direction:column;gap:2px}
+.wa-globe-tip span{color:var(--ui-text-secondary)}
 @container (max-width:860px){
   .wa-metro-grid{grid-template-columns:minmax(150px,240px) minmax(0,3fr)}
   .wa-metro-jobs{grid-template-columns:minmax(0,1fr)}
@@ -1586,12 +1688,15 @@ const STYLE = `
   .wa-root .wa-metro-bar-act{margin-left:0;width:100%}
   .wa-metro-detail{margin:0 16px 16px}
   .wa-metro-dbody{padding:14px}
+  .wa-metro-map{margin:4px 16px 16px}
+  .wa-globe{grid-template-columns:minmax(0,1fr);margin:0 16px 16px;padding:16px}
+  .wa-globe-stage{min-height:300px}
   .wa-metro-kv{grid-template-columns:minmax(0,1fr)}
   .wa-metro-run{grid-template-columns:22px minmax(0,1fr) auto}
   .wa-metro-run-at{grid-column:1/-1}
 }
 @media (prefers-reduced-motion: reduce){
-  .wa-metro-navbtn,.wa-metro-wire,.wa-metro-stop,.wa-desk-more>summary .codicon{transition:none}
+  .wa-metro-navbtn,.wa-metro-wire,.wa-metro-stop,.wa-metro-station,.wa-globe-miss,.wa-desk-more>summary .codicon{transition:none}
   .wa-metro-wire[data-kind="line"][data-state="run"]{animation:none}
 }
 `
@@ -3830,11 +3935,12 @@ function useMetroReads(checks) {
     checks ? 60000 : 0, [checks])
   const engine = usePolling(api.engineStatus, 60000)
   const folio = useFolioPolling()
+  const map = usePolling(api.wikiMap, 300000)
   const cands = { ...folio.candidates, busy: folio.busy, refresh: folio.refresh }
   const reads = [auto, jobs, harvest, runs, store, watch, engine, folio]
   const busy = reads.some(read => read.busy)
-  const refresh = () => reads.filter(read => read !== engine).forEach(read => read.refresh?.())
-  return { auto, jobs, harvest, runs, store, watch, engine, folio, cands, busy, refresh }
+  const refresh = () => [...reads, map].filter(read => read !== engine).forEach(read => read.refresh?.())
+  return { auto, jobs, harvest, runs, store, watch, engine, folio, cands, map, busy, refresh }
 }
 
 function metroFailures(t, reads, projectOk) {
@@ -4218,7 +4324,10 @@ function MetroMap({ t, model, reads, open, toggle }) {
         }, path.key)) }, 'wires'),
       jsx(MetroTitle, { t, sub: timetable ? t('wa.metroLineSub') : t('wa.metroNoTimetable') }, 'title'),
       jsxs('div', { className: 'wa-metro-grid', children: [
-        jsx('div', { className: 'wa-metro-lines', children: lines }, 'lines'),
+        jsxs('div', { className: 'wa-metro-lines', children: [
+          jsx('span', { className: 'wa-metro-group', children: t('wa.metroConversations') }, 'group'),
+          ...[].concat(lines)
+        ] }, 'lines'),
         jsx('div', { className: 'wa-metro-stations', children: model.stations.map(station => jsx(MetroStation, {
           station, open: open === station.id, onToggle: () => toggle(station.id)
         }, station.id)) }, 'stations')
@@ -4271,8 +4380,358 @@ function EngineNotice({ t, state, onAct }) {
   ] }, 'engine-notice')
 }
 
+function notchTarget(root, id) {
+  if (!root) return null
+  if (id.startsWith('line:')) {
+    return [...root.querySelectorAll('[data-wa-line]')].find(el => el.dataset.waLine === id.slice(5)) || null
+  }
+  return [...root.querySelectorAll('[data-wa-station]')].find(el => el.dataset.waStation === id) || null
+}
+
+function useNotch(ref, id, folded) {
+  const [notch, setNotch] = useState(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el || folded) return undefined
+    const root = el.closest('.wa-metro')
+    const measure = () => {
+      const target = notchTarget(root, id)
+      const box = el.getBoundingClientRect()
+      const after = el.previousElementSibling?.classList?.contains('wa-metro-map')
+      if (!target || !after || !box.width) { setNotch(null); return }
+      const spot = target.querySelector('.wa-metro-stop, .wa-metro-line-dot') || target
+      const at = spot.getBoundingClientRect()
+      const x = Math.round(at.left + at.width / 2 - box.left)
+      setNotch(x > 20 && x < box.width - 20 ? x : null)
+    }
+    measure()
+    const watcher = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null
+    if (watcher && root) watcher.observe(root)
+    return () => watcher?.disconnect()
+  }, [id, folded])
+  return notch
+}
+
+const GLOBE = { gold: Math.PI * (3 - Math.sqrt(5)), tilt: 0.3, gap: 0.035, turn: 0.008, lines: 12, rings: 3, recent: 7,
+  angles: [-0.42, -0.08, 0.26, 0.64] }
+const GLOBE_BANDS = ['concepts', 'entities', 'sources', 'other']
+
+function globeModel(map) {
+  if (!map) return null
+  const pages = map.pages || []
+  const missing = map.missing || []
+  const total = typeof map.missing_total === 'number' ? map.missing_total : missing.length
+  const group = new Map()
+  missing.forEach((row, index) => (row.holders || []).forEach(id => {
+    if (!group.has(id)) group.set(id, Math.min(index, GLOBE.rings))
+  }))
+  const bands = []
+  const points = []
+  let top = 1
+  GLOBE_BANDS.forEach((name, order) => {
+    const rows = pages.filter(page => (GLOBE_BANDS.includes(page.band) ? page.band : 'other') === name)
+    if (!rows.length) return
+    const bottom = top - 2 * rows.length / pages.length
+    const hi = top - (bands.length ? GLOBE.gap / 2 : 0)
+    const lo = bottom + (bottom > -0.999 ? GLOBE.gap / 2 : 0)
+    const band = { name, n: rows.length, mid: (top + bottom) / 2, bottom, warn: 0 }
+    bands.push(band)
+    rows.forEach((page, i) => {
+      const y = hi - (i + 0.5) / rows.length * (hi - lo)
+      const r = Math.sqrt(Math.max(0, 1 - y * y))
+      const turn = (i + order * 7) * GLOBE.gold
+      const g = group.has(page.id) ? group.get(page.id) : -1
+      if (g >= 0) band.warn += 1
+      points.push({ x: Math.cos(turn) * r, y, z: Math.sin(turn) * r, band, title: String(page.title || page.id),
+        age: Number(page.age) || 0, recent: Number(page.age) < GLOBE.recent, g, s: null })
+    })
+    top = bottom
+  })
+  const marked = points.filter(point => point.g >= 0).length
+  const rings = Math.min(missing.length, GLOBE.rings) + (total > GLOBE.rings ? 1 : 0)
+  return { points, bands, missing, total, rings, holders: Number(map.holders) || marked, links: marked <= GLOBE.lines,
+    recent: points.filter(point => point.recent).length, truncated: Boolean(map.truncated) }
+}
+
+function globeGeo(W, H, links) {
+  const room = links ? 140 : 200
+  const R = Math.max(0, Math.min((W - room) / 2.1, H * 0.35))
+  return { R, gx: Math.max(R * 1.02 + 6, (W - room + 40) / 2), gy: H * 0.56 }
+}
+
+function globeRing(g, R, gx, gy) {
+  const a = GLOBE.angles[g] || 0
+  return { x: gx + Math.sin(a) * R * 1.32, y: gy - Math.cos(a) * R * 1.32 }
+}
+
+function globeProject(p, rot, R, gx, gy) {
+  const c = Math.cos(rot)
+  const s = Math.sin(rot)
+  const x = p.x * c + p.z * s
+  const z = -p.x * s + p.z * c
+  const y2 = p.y * Math.cos(GLOBE.tilt) - z * Math.sin(GLOBE.tilt)
+  const z2 = p.y * Math.sin(GLOBE.tilt) + z * Math.cos(GLOBE.tilt)
+  const f = 2.8 / (2.8 - z2)
+  return { sx: gx + x * R * f, sy: gy - y2 * R * f, z: z2, f }
+}
+
+function globeColors(el) {
+  const probe = document.createElement('span')
+  el.appendChild(probe)
+  const read = token => {
+    probe.style.color = `var(${token})`
+    return getComputedStyle(probe).color
+  }
+  const col = { ink: read('--ui-text-primary'), warn: read('--ui-orange'), edge: read('--ui-stroke-secondary'),
+    ground: read('--wa-card') }
+  probe.remove()
+  return col
+}
+
+function globeDraw(ctx, model, view, group) {
+  const { W, H, col, rot, hover } = view
+  const { R, gx, gy } = globeGeo(W, H, model.links)
+  ctx.clearRect(0, 0, W, H)
+  if (R < 20) return
+  const dot = (x, y, r) => { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2) }
+  ctx.strokeStyle = col.ink
+  ctx.globalAlpha = 0.16
+  ctx.lineWidth = 1
+  dot(gx, gy, R)
+  ctx.stroke()
+  ctx.strokeStyle = col.edge
+  ctx.globalAlpha = 0.7
+  ctx.setLineDash([2, 4])
+  for (const band of model.bands.slice(0, -1)) {
+    const y = band.bottom
+    const r = Math.sqrt(Math.max(0, 1 - y * y))
+    ctx.beginPath()
+    for (let k = 0; k <= 48; k += 1) {
+      const a = Math.PI * k / 48
+      const q = globeProject({ x: Math.cos(a) * r, y, z: Math.sin(a) * r }, rot, R, gx, gy)
+      if (k) ctx.lineTo(q.sx, q.sy)
+      else ctx.moveTo(q.sx, q.sy)
+    }
+    ctx.stroke()
+  }
+  ctx.setLineDash([])
+  const shown = model.points.map(p => ({ ...globeProject(p, rot, R, gx, gy), p })).sort((a, b) => a.z - b.z)
+  if (model.links) {
+    ctx.strokeStyle = col.warn
+    ctx.setLineDash([5, 5])
+    for (const q of shown) {
+      if (q.p.g < 0) continue
+      const ring = globeRing(q.p.g, R, gx, gy)
+      const lit = group < 0 || group === q.p.g
+      ctx.globalAlpha = (0.25 + (q.z + 1) * 0.35) * (lit ? 1 : 0.2)
+      ctx.lineWidth = group === q.p.g ? 2 : 1.3
+      ctx.beginPath()
+      ctx.moveTo(q.sx, q.sy)
+      ctx.quadraticCurveTo((q.sx + ring.x) / 2 + 30, (q.sy + ring.y) / 2 - 20, ring.x, ring.y)
+      ctx.stroke()
+    }
+    ctx.setLineDash([])
+  }
+  for (const q of shown) {
+    const front = (q.z + 1) / 2
+    if (q.p.g >= 0) {
+      const mine = group === q.p.g
+      ctx.fillStyle = col.warn
+      ctx.strokeStyle = col.warn
+      ctx.globalAlpha = (0.35 + front * 0.65) * (group < 0 ? (model.links ? 1 : 0.6) : mine ? 1 : 0.15)
+      dot(q.sx, q.sy, (model.links ? 3.6 : mine ? 3.2 : 1.8) * q.f)
+      ctx.fill()
+      if (model.links) { ctx.lineWidth = 1.2; dot(q.sx, q.sy, 7 * q.f); ctx.stroke() }
+    } else {
+      ctx.fillStyle = col.ink
+      ctx.globalAlpha = q.p.recent ? 0.3 + front * 0.7 : 0.14 + front * 0.26
+      dot(q.sx, q.sy, (q.p.recent ? 0.9 + front * 1.5 : 0.7 + front) * q.f)
+      ctx.fill()
+    }
+    q.p.s = q
+  }
+  ctx.globalAlpha = 1
+  for (let g = 0; g < model.rings; g += 1) {
+    const ring = globeRing(g, R, gx, gy)
+    ctx.fillStyle = col.ground
+    dot(ring.x, ring.y, g < GLOBE.rings ? 13 : 24)
+    ctx.fill()
+    ctx.strokeStyle = col.warn
+    ctx.lineWidth = group === g ? 2.2 : 1.5
+    ctx.setLineDash([3, 3])
+    ctx.stroke()
+    ctx.setLineDash([])
+  }
+  if (hover?.s) {
+    ctx.strokeStyle = col.ink
+    ctx.globalAlpha = 0.9
+    ctx.lineWidth = 1.5
+    dot(hover.s.sx, hover.s.sy, 6)
+    ctx.stroke()
+    ctx.globalAlpha = 1
+  }
+}
+
+function globeMarks(t, model, W, H) {
+  const { R, gx, gy } = globeGeo(W, H, model.links)
+  if (R < 20) return { bands: [], rings: [] }
+  let prev = -1e9
+  const bands = model.bands.map(band => {
+    const tall = band.warn && !model.links
+    const y = Math.max(gy - band.mid * Math.cos(GLOBE.tilt) * R, prev + (tall ? 40 : 26))
+    prev = y
+    return { name: band.name, n: band.n, warn: tall ? band.warn : 0, x: gx + R * 1.08, y }
+  })
+  const rings = [...Array(model.rings).keys()].map(g => ({ g, ...globeRing(g, R, gx, gy),
+    text: g < GLOBE.rings ? String(g + 1) : `+${model.total - GLOBE.rings}` }))
+  return { bands, rings }
+}
+
+function WikiGlobe({ t, read }) {
+  const stageRef = useRef(null)
+  const canvasRef = useRef(null)
+  const view = useRef({ rot: -0.35, drag: null, hover: null, W: 0, H: 0, col: null, ctx: null })
+  const cache = useRef({ map: null, model: null })
+  const [pinned, setPinned] = useState(-1)
+  const [focus, setFocus] = useState(-1)
+  const [tip, setTip] = useState(null)
+  const [marks, setMarks] = useState({ bands: [], rings: [] })
+  const map = read?.data?.ok === true ? read.data : null
+  if (cache.current.map !== map) cache.current = { map, model: globeModel(map) }
+  const model = cache.current.model
+  const group = focus >= 0 ? focus : pinned
+  view.current.group = group
+  const paint = () => {
+    const v = view.current
+    if (model && v.ctx && v.col && v.W) globeDraw(v.ctx, model, v, v.group)
+  }
+  useLayoutEffect(() => {
+    const stage = stageRef.current
+    const canvas = canvasRef.current
+    if (!stage || !canvas || !model) return undefined
+    const layout = () => {
+      const box = canvas.getBoundingClientRect()
+      const v = view.current
+      if (!box.width || !box.height || typeof canvas.getContext !== 'function') return
+      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      canvas.width = Math.round(box.width * dpr)
+      canvas.height = Math.round(box.height * dpr)
+      v.ctx = canvas.getContext('2d')
+      if (!v.ctx) return
+      v.ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      v.W = box.width
+      v.H = box.height
+      v.col = globeColors(stage)
+      setMarks(globeMarks(t, model, v.W, v.H))
+      paint()
+    }
+    layout()
+    const watcher = typeof ResizeObserver === 'function' ? new ResizeObserver(layout) : null
+    watcher?.observe(stage)
+    return () => watcher?.disconnect()
+  }, [model])
+  useLayoutEffect(paint, [group, model])
+  if (!map) {
+    return jsx('section', { className: 'wa-globe', 'data-wa-globe': read?.error ? 'unread' : 'reading',
+      'aria-label': t('wa.globeLabel'), children: jsxs('div', { className: 'wa-globe-copy', children: [
+        jsx('span', { className: 'wa-globe-label', children: t('wa.globeLabel') }, 'label'),
+        read?.error ? jsx(Failure, { t, text: t('wa.globeUnread'), detail: read.error }, 'failed')
+          : jsx('p', { className: 'wa-globe-lead', children: t('wa.globeReading') }, 'reading')
+      ] }, 'copy') }, 'globe')
+  }
+  const pick = event => {
+    const v = view.current
+    const box = canvasRef.current.getBoundingClientRect()
+    const mx = event.clientX - box.left
+    const my = event.clientY - box.top
+    let best = null
+    let gap = 324
+    for (const p of model.points) {
+      if (!p.s || p.s.z < -0.05) continue
+      const d = (p.s.sx - mx) ** 2 + (p.s.sy - my) ** 2
+      if (d < gap) { gap = d; best = p }
+    }
+    v.hover = best
+    const named = best && best.g >= 0 ? (best.g < GLOBE.rings ? model.missing[best.g]?.name : t('wa.globeMoreBy')) : ''
+    setTip(best ? { x: best.s.sx, y: best.s.sy, title: best.title,
+      text: [best.band.name, t('wa.globeAge', best.age), named ? t('wa.globeNames', named) : ''].filter(Boolean).join(' · ') }
+      : null)
+    paint()
+  }
+  const handlers = {
+    onPointerDown: event => {
+      view.current.drag = { x: event.clientX, rot: view.current.rot }
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+      event.currentTarget.dataset.drag = '1'
+      view.current.hover = null
+      setTip(null)
+    },
+    onPointerUp: event => { view.current.drag = null; delete event.currentTarget.dataset.drag },
+    onPointerMove: event => {
+      const v = view.current
+      if (v.drag) { v.rot = v.drag.rot + (event.clientX - v.drag.x) * GLOBE.turn; paint(); return }
+      pick(event)
+    },
+    onPointerLeave: () => { if (!view.current.drag) { view.current.hover = null; setTip(null); paint() } }
+  }
+  const top = model.missing.slice(0, GLOBE.rings)
+  const rest = model.total - top.length
+  const bandsText = model.bands.map(band => `${band.n} ${band.name}`).join(', ')
+  const row = (g, n, name, by) => jsx('li', { children: jsxs('button', {
+    type: 'button', className: 'wa-globe-miss', 'aria-pressed': pinned === g,
+    onClick: () => setPinned(prev => (prev === g ? -1 : g)), onMouseEnter: () => setFocus(g),
+    onMouseLeave: () => setFocus(-1), onFocus: () => setFocus(g), onBlur: () => setFocus(-1),
+    children: [
+      jsx('span', { className: 'wa-globe-n', 'aria-hidden': true, children: n }, 'n'),
+      jsx('span', { className: 'wa-globe-name', children: name }, 'name'),
+      jsx('span', { className: 'wa-globe-by', children: by }, 'by')
+    ] }, 'button') }, `miss-${g}`)
+  return jsxs('section', { className: 'wa-globe', 'data-wa-globe': 'ready', 'aria-label': t('wa.globeLabel'), children: [
+    jsxs('div', { className: 'wa-globe-copy', children: [
+      jsx('span', { className: 'wa-globe-label', children: t('wa.globeLabel') }, 'label'),
+      jsx('h2', { className: 'wa-globe-head', children: model.total ? t('wa.globeMissingHead', model.total)
+        : t('wa.globeAllFound') }, 'head'),
+      jsx('p', { className: 'wa-globe-lead', children: [t('wa.globeLead', model.points.length, model.recent),
+        model.total ? t('wa.globeHolders', model.holders) : ''].filter(Boolean).join('. ') }, 'lead'),
+      top.length ? jsxs('ol', { className: 'wa-globe-list', children: [
+        ...top.map((miss, g) => row(g, String(g + 1), miss.name, t('wa.globeNamedBy', miss.count))),
+        rest > 0 ? row(GLOBE.rings, '+', t('wa.globeMore', rest), t('wa.globeMoreBy')) : null
+      ] }, 'list') : null,
+      model.truncated ? jsx('p', { className: 'wa-globe-hint', children: t('wa.globeTruncated', model.points.length) },
+        'cut') : null,
+      jsxs('div', { className: 'wa-globe-key', 'aria-hidden': true, children: [
+        jsxs('span', { children: [jsx('i', { 'data-k': 'recent' }, 'i'), t('wa.globeKeyRecent', model.recent)] }, 'recent'),
+        jsxs('span', { children: [jsx('i', { 'data-k': 'older' }, 'i'),
+          t('wa.globeKeyOlder', model.points.length - model.recent)] }, 'older'),
+        model.total ? jsxs('span', { children: [jsx('i', { 'data-k': 'names' }, 'i'),
+          t('wa.globeKeyNames', model.holders)] }, 'names') : null,
+        model.total ? jsxs('span', { children: [jsx('i', { 'data-k': 'missing' }, 'i'),
+          t('wa.globeKeyMissing', model.total)] }, 'missing') : null
+      ] }, 'key'),
+      jsx('p', { className: 'wa-globe-hint', children: t('wa.globeDrag') }, 'hint')
+    ] }, 'copy'),
+    jsxs('div', { className: 'wa-globe-stage', ref: stageRef, children: [
+      jsx('canvas', { className: 'wa-globe-canvas', ref: canvasRef, role: 'img',
+        'aria-label': t('wa.globeAria', model.points.length, bandsText, model.recent, model.holders, model.total),
+        ...handlers }, 'canvas'),
+      ...marks.bands.map(band => jsxs('span', { className: 'wa-globe-band', 'aria-hidden': true,
+        style: { left: `${band.x}px`, top: `${band.y}px` }, children: [
+          jsxs('span', { children: [jsx('b', { children: band.name }, 'name'), String(band.n)] }, 'count'),
+          band.warn ? jsx('span', { 'data-warn': '1', children: t('wa.globeBandWarn', band.warn) }, 'warn') : null
+        ] }, `band-${band.name}`)),
+      ...marks.rings.map(ring => jsx('span', { className: 'wa-globe-ring', 'aria-hidden': true,
+        style: { left: `${ring.x}px`, top: `${ring.y}px` }, children: ring.text }, `ring-${ring.g}`)),
+      tip ? jsxs('div', { className: 'wa-globe-tip', 'aria-hidden': true, style: { left: `${tip.x}px`, top: `${tip.y}px` },
+        children: [jsx('b', { children: tip.title }, 'title'), jsx('span', { children: tip.text }, 'text')] }, 'tip') : null
+    ] }, 'stage')
+  ] }, 'globe')
+}
+
 function MetroDetail({ t, id, glyph, heading, onClose, children, candidateRef, folded }) {
-  return jsxs('section', { className: folded ? 'wa-metro-kept' : 'wa-metro-detail', 'data-for': id,
+  const ref = useRef(null)
+  const notch = useNotch(ref, id, folded)
+  return jsxs('section', { ref, className: folded ? 'wa-metro-kept' : 'wa-metro-detail', 'data-for': id,
+    'data-notch': notch === null ? undefined : '1', style: notch === null ? undefined : { '--wa-notch': `${notch}px` },
     'aria-label': heading, hidden: folded || undefined, 'data-candidate-ref': candidateRef || undefined, children: [
     jsxs('div', { className: 'wa-metro-dhead', children: [
       icon(glyph),
@@ -4348,6 +4807,7 @@ function WikiDetail({ t, model, reads, onClose }) {
   return jsxs(MetroDetail, { t, id: 'wiki', glyph: 'book', heading, onClose, children: [
     runs.error ? jsx(Failure, { t, text: t('wa.metroChecksUnread'), detail: runs.error }, 'runs-failed') : null,
     watch.error ? jsx(Failure, { t, text: t('wa.metroChecksUnread'), detail: watch.error }, 'watch-failed') : null,
+    jsx(WikiGlobe, { t, read: reads.map }, 'globe'),
     jsx('strong', { className: 'wa-metro-lead', children: lead }, 'lead'),
     findings.length ? jsx('ol', { className: 'wa-metro-findings', children: findings.map((f, i) => jsxs('li', {
       className: 'wa-metro-finding', children: [
@@ -4694,6 +5154,7 @@ function Page() {
         ? jsx(MetroBar, { t, alert: model.alert, onAct: act }, 'bar') : null,
       !model.loading && model.engineAsk && model.alert?.key !== 'engine' ? jsx(EngineNotice, { t,
         state: model.engineAsk, onAct: () => act({ open: 'settings', jump: 'install' }) }, 'engine') : null,
+      !model.loading && !open ? jsx(WikiGlobe, { t, read: reads.map }, 'globe') : null,
       open && open !== 'settings' ? jsx(MetroDetailFor, { t, id: open, model, reads, onClose: close },
         `detail-${open}`) : null,
       open === 'settings' || kept.current ? jsx(SettingsDetail, { t, reads, model, jumpTo, onJumped: () => setJumpTo(null),
