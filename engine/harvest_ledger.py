@@ -5,6 +5,10 @@ A conversation that grows after `done`/`empty` gets a new row for the new tail o
 `pending` except through its own row, so a failed conversation never forces a whole run to be
 collected again. Times are epoch seconds of the conversation's messages; `after` is exclusive and
 `through` inclusive. See design section 4.1 and 4.6 (leases, at most 2 paid attempts).
+
+The merger takes items one by one (`merged_items`): a night stopped by its cap or clock keeps the
+items it did not reach for the next night, and never offers an item it already drafted again. A row
+is marked merged once every one of its items was taken. `meta` keeps the collector's last time.
 """
 import hashlib
 import json
@@ -14,7 +18,8 @@ from pathlib import Path
 
 LEASE_SECONDS = 15 * 60
 MAX_ATTEMPTS = 2
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+TABLES = {'conversations', 'merged_items', 'meta'}
 COLUMNS = ('id', 'agent', 'conversation', 'after', 'through', 'content_hash', 'prompt_version', 'status',
            'attempts', 'last_error', 'next_attempt_at', 'lease_worker', 'lease_started', 'tokens_in',
            'tokens_out', 'cost_usd', 'parts', 'items', 'problems', 'merged', 'created', 'updated')
@@ -41,7 +46,7 @@ class Ledger:
             self.db.execute('BEGIN IMMEDIATE')
             version = self.db.execute('PRAGMA user_version').fetchone()[0]
             tables = {row[0] for row in self.db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            if (version, tables) not in ((0, set()), (SCHEMA_VERSION, {'conversations'})):
+            if (version, tables) not in ((0, set()), (1, {'conversations'}), (SCHEMA_VERSION, TABLES)):
                 raise LedgerError('The harvest ledger has an unknown schema; it was left untouched')
             self.db.execute(
                 'CREATE TABLE IF NOT EXISTS conversations (id INTEGER PRIMARY KEY, agent TEXT NOT NULL,'
@@ -51,6 +56,9 @@ class Ledger:
                 ' tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0,'
                 ' cost_usd REAL NOT NULL DEFAULT 0, parts TEXT NOT NULL, items TEXT, problems TEXT, merged TEXT,'
                 ' created REAL NOT NULL, updated REAL NOT NULL)')
+            self.db.execute('CREATE TABLE IF NOT EXISTS merged_items (row_id INTEGER NOT NULL, item INTEGER NOT NULL,'
+                            ' night TEXT NOT NULL, PRIMARY KEY (row_id, item))')
+            self.db.execute('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
             self.db.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
             self.db.execute('COMMIT')
         except (sqlite3.DatabaseError, LedgerError) as exc:
@@ -207,6 +215,39 @@ class Ledger:
                     raise LedgerError(f'Row {row_id} is not a finished, unmerged row')
                 self.db.execute('UPDATE conversations SET merged=?, updated=? WHERE id=?', (night, self.clock(), row_id))
         self._write(work)
+
+    def merged_items(self):
+        """{(row id, item index)} the merger already took."""
+        return {tuple(pair) for pair in self.db.execute('SELECT row_id, item FROM merged_items')}
+
+    def mark_items_merged(self, pairs, night):
+        """Record that `night` took these (row id, item index) pairs; a row whose items are all taken is
+        marked merged. An item already taken, out of range or of an unfinished row refuses the batch."""
+        def work():
+            touched = set()
+            for row_id, index in pairs:
+                row = self._by_id(row_id)
+                if (row['status'] not in ('done', 'empty') or row['merged'] is not None
+                        or not 0 <= index < len(row['items'] or [])):
+                    raise LedgerError(f'Item {index} of row {row_id} is not an item of a finished, unmerged row')
+                try:
+                    self.db.execute('INSERT INTO merged_items (row_id, item, night) VALUES (?, ?, ?)', (row_id, index, night))
+                except sqlite3.IntegrityError as exc:
+                    raise LedgerError(f'Item {index} of row {row_id} was already merged') from exc
+                touched.add(row_id)
+            for row_id in touched:
+                taken = self.db.execute('SELECT COUNT(*) FROM merged_items WHERE row_id=?', (row_id,)).fetchone()[0]
+                if taken == len(self._by_id(row_id)['items'] or []):
+                    self.db.execute('UPDATE conversations SET merged=?, updated=? WHERE id=?', (night, self.clock(), row_id))
+        self._write(work)
+
+    def get_meta(self, key):
+        row = self.db.execute('SELECT value FROM meta WHERE key=?', (key,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def set_meta(self, key, value):
+        self._write(lambda: self.db.execute('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE'
+                                            ' SET value=excluded.value', (key, json.dumps(value))))
 
     def rows(self, status=None):
         query = f'SELECT {",".join(COLUMNS)} FROM conversations'

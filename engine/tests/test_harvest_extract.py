@@ -274,6 +274,12 @@ class CostCap(unittest.TestCase):
         self.assertFalse(hx.over_cap(0.7, 0.3, 1.0))      # a call that would land exactly on the cap fits
         self.assertTrue(hx.over_cap(0.0, 0.0, 0.0))       # a zero cap allows nothing
 
+    def test_the_next_call_must_end_before_the_deadline_judged_by_the_slowest_call(self):
+        self.assertFalse(hx.out_of_time(100.0, 40.0, None))
+        self.assertFalse(hx.out_of_time(100.0, 40.0, 140.0))
+        self.assertTrue(hx.out_of_time(100.0, 41.0, 140.0))
+        self.assertTrue(hx.out_of_time(140.0, 0.0, 140.0))
+
 
 if __name__ == '__main__':
     unittest.main()

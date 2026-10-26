@@ -37,6 +37,15 @@
       "schedule_key": "session_harvest",
       "default_schedule": "30 21 * * *",
       "description": "Wiki Session Harvest (script gate + agent). WHAT IT DOES: collects the conversations finished since the last harvest (Hermes, Codex, Claude Code, Antigravity) and drafts wiki source candidates from the decisions in them, with evidence captured as files. It never writes to the wiki: the owner approves each candidate. COST: when nothing new was said the script stops the run before any model is called."
+    },
+    "harvest_night": {
+      "name": "Wiki Harvest",
+      "kind": "script",
+      "launcher": "palantir_wiki_harvest_night.py",
+      "impl": "harvest_night.py",
+      "schedule_key": "harvest_night",
+      "default_schedule": "30 21 * * *",
+      "description": "Wiki Harvest (script-only job; the successor of Wiki Session Harvest, which stays as the drafting job the approval system is bound to). WHAT IT DOES: reads every conversation that changed since the last run (Hermes except tool sessions, Codex, Claude Code, Antigravity) one by one into the harvest ledger, then merges the new decisions, findings and articles into at most one draft per wiki page. Drafts appear in Review; nothing reaches the wiki without the owner's approval. A page that already has a draft waiting in Review is not drafted again until that draft is approved or rejected. LIMITS: a cost cap and a time limit per night (settings harvest_pipeline: cap_usd, minutes); what a night does not reach waits for the next night. HOW TO READ: one JSON line; 'stopped' says why the night ended early, 'merge' lists drafts, refusals, pages not reached and pages waiting for a review; the full report and every model reply are kept in harvest-nights/<night>/."
     }
   }
 }

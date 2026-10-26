@@ -24,6 +24,7 @@ import difflib
 import hashlib
 import json
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -294,34 +295,52 @@ class CapReached(Exception):
     pass
 
 
-def merge_night(ledger, wiki, out_dir, caller, rules_text, night, today, cap_usd=None):
-    """Merge every finished, unmerged ledger row; returns the night's report (also written to report.json).
-    A failed model call, or a next call that could pass `cap_usd` (judged by the dearest call so far),
-    stops the night and leaves the rows for the next one."""
+def merge_night(ledger, wiki, out_dir, caller, rules_text, night, today, cap_usd=None, busy=(), deadline=None,
+                clock=time.time, candidates_dir=None):
+    """Merge the items of the finished ledger rows not taken yet; returns the night's report (also written
+    to report.json). Items are taken one by one: an item routed to a page that was drafted, refused or
+    left unchanged, or dropped with a reason, is taken; an item the night did not reach stays for the
+    next night. A failed model call, a next call that could pass `cap_usd` (judged by the dearest call)
+    or end after `deadline` (judged by the slowest call) stops the night. A page in `busy` (a draft of
+    it waits in Review) is not drafted; its items wait, so two drafts of one page never compete.
+    Candidates go to `candidates_dir` (default <out_dir>/candidates); replies and report.json to out_dir."""
     wiki, out_dir = Path(wiki), Path(out_dir)
+    candidates = Path(candidates_dir) if candidates_dir is not None else out_dir / 'candidates'
     rows = ledger.unmerged()
+    taken_before = ledger.merged_items()
     report = {'night': night, 'rows': [r['id'] for r in rows], 'candidates': [], 'refused': [], 'unchanged': [],
               'dropped': {}, 'problems': [], 'skill_candidates': [], 'article_signals': [], 'cost_usd': 0.0,
-              'tokens_in': 0, 'tokens_out': 0, 'sessions': [], 'not_drafted': [], 'stopped': None}
+              'tokens_in': 0, 'tokens_out': 0, 'sessions': [], 'not_drafted': [], 'waiting_on_review': [],
+              'stopped': None}
     routes = {}
     items = {}
+    origin = {}
+    taken = []
     for row in rows:
         date = datetime.fromtimestamp(row['through']).strftime('%Y-%m-%d')
-        for item in row['items'] or []:
+        for index, item in enumerate(row['items'] or []):
+            if (row['id'], index) in taken_before:
+                continue
             entry = dict(item, conversation=row['conversation'], agent=row['agent'], label=label_of(row), date=date)
-            if item['type'] == 'process':
-                report['skill_candidates'].append(item['claim'])
-            elif item['type'] == 'article_signal':
-                report['article_signals'].append(item['claim'])
+            if item['type'] in ('process', 'article_signal'):
+                report['skill_candidates' if item['type'] == 'process' else 'article_signals'].append(item['claim'])
+                taken.append((row['id'], index))
             else:
-                items[f'I{len(items) + 1}'] = entry
+                key = f'I{len(items) + 1}'
+                items[key] = entry
+                origin[key] = (row['id'], index)
 
     dearest = [0.0]
+    slowest = [0.0]
 
     def ask(prompt, name):
         if hx.over_cap(report['cost_usd'], dearest[0], cap_usd):
             raise CapReached(f'cost cap ${cap_usd:.2f} reached')
+        if hx.out_of_time(clock(), slowest[0], deadline):
+            raise CapReached('time limit reached; the rest waits for the next night')
+        started = clock()
         reply, usage = caller(prompt)
+        slowest[0] = max(slowest[0], clock() - started)
         (out_dir / 'replies').mkdir(parents=True, exist_ok=True)
         (out_dir / 'replies' / f'{name}.txt').write_text(reply or '', encoding='utf-8')
         report['cost_usd'] += usage.get('cost_usd') or 0.0
@@ -342,7 +361,10 @@ def merge_night(ledger, wiki, out_dir, caller, rules_text, night, today, cap_usd
                 reply = ask(hx.format_repair_prompt(prompt), 'route.2')
                 routes, report['dropped'], report['problems'] = parse_routes(reply, items, wiki, today)
             for target, ids in routes.items():
-                draft_one(target, {i: items[i] for i in ids}, wiki, out_dir, rules, today, ask, report)
+                if target in busy:
+                    report['waiting_on_review'].append({'target': target, 'items': ids})
+                    continue
+                draft_one(target, {i: items[i] for i in ids}, wiki, candidates, rules, today, ask, report)
     except hx.CallError as exc:
         report['stopped'] = f'call failed: {exc}'
     except CapReached as exc:
@@ -350,15 +372,18 @@ def merge_night(ledger, wiki, out_dir, caller, rules_text, night, today, cap_usd
     except MergeError as exc:
         report['stopped'] = f'routing reply unusable: {exc}'
     reached = {entry['target'] for key in ('candidates', 'refused', 'unchanged') for entry in report[key]}
-    report['not_drafted'] = [{'target': target, 'items': ids} for target, ids in routes.items() if target not in reached]
+    report['not_drafted'] = [{'target': target, 'items': ids} for target, ids in routes.items()
+                             if target not in reached and target not in busy]
+    taken += [origin[i] for target in reached for i in routes.get(target, [])]
+    taken += [origin[i] for i in report['dropped']]
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding='utf-8')
-    if report['stopped'] is None:
-        ledger.mark_merged(report['rows'], night)
+    ledger.mark_items_merged(taken, night)
+    ledger.mark_merged([row['id'] for row in rows if not row['items']], night)
     return report
 
 
-def draft_one(target, items, wiki, out_dir, rules, today, ask, report):
+def draft_one(target, items, wiki, candidates, rules, today, ask, report):
     path = wiki / 'raw' / 'sources' / target
     page = path.read_text(encoding='utf-8') if path.is_file() else None
     prompt = draft_prompt(target, page, items, rules, today)
@@ -383,9 +408,9 @@ def draft_one(target, items, wiki, out_dir, rules, today, ask, report):
                         else f'{field} must be plain text' for field in ('summary', 'why')
                         for value in [metadata.get(field)] if not (isinstance(value, str) and 1 <= len(value) <= 2000)]
             if not problems:
-                base, problems = check(wiki, out_dir / 'candidates', metadata, source, page, list(items.values()))
+                base, problems = check(wiki, candidates, metadata, source, page, list(items.values()))
             if not problems:
-                draft_adapter.store_draft(out_dir / 'candidates' / Path(target).stem, metadata, source, base)
+                draft_adapter.store_draft(candidates / Path(target).stem, metadata, source, base)
                 report['candidates'].append({'target': target, 'kind': metadata['kind'], 'items': list(items),
                                              'removed_open': removed_open(page, source) if page else []})
                 return

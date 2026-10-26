@@ -156,6 +156,12 @@ def over_cap(spent, dearest, cap):
     return cap is not None and (spent >= cap or spent + dearest > cap)
 
 
+def out_of_time(now, slowest, deadline):
+    """True when the next call could end after `deadline` (epoch seconds), judged by the slowest call of
+    this run. Hermes kills a script job at its own time limit; stopping first keeps the ledger consistent."""
+    return deadline is not None and (now >= deadline or now + slowest > deadline)
+
+
 def tokens_in(usage):
     """Every input token of one call: uncached, read from the prompt cache and written to it."""
     figures = usage.get('usage') or {}

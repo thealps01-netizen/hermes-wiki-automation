@@ -198,6 +198,61 @@ class Store(Base):
             summary = ledger.summary()
         self.assertEqual(summary, {'counts': {'pending': 1, 'done': 1}, 'cost_usd': 0.25})
 
+    def test_items_are_taken_one_by_one_and_a_row_is_merged_once_all_its_items_are(self):
+        with self.ledger() as ledger:
+            self.offer(ledger, cid='a')
+            self.offer(ledger, cid='b')
+            first = ledger.claim('w1')
+            ledger.finish(first['id'], 'w1', [ITEM, dict(ITEM, claim='Second.')], [])
+            second = ledger.claim('w1')
+            ledger.finish(second['id'], 'w1', [ITEM], [])
+            ledger.mark_items_merged([(first['id'], 0), (second['id'], 0)], 'night-1')
+            self.assertEqual(ledger.merged_items(), {(first['id'], 0), (second['id'], 0)})
+            self.assertEqual([r['conversation'] for r in ledger.unmerged()], ['a'])
+            ledger.mark_items_merged([(first['id'], 1)], 'night-2')
+            self.assertEqual(ledger.unmerged(), [])
+            self.assertEqual([r['merged'] for r in ledger.rows()], ['night-2', 'night-1'])
+
+    def test_an_item_cannot_be_taken_twice_or_from_an_unfinished_row(self):
+        with self.ledger() as ledger:
+            self.offer(ledger, cid='a')
+            self.offer(ledger, cid='b')
+            row = ledger.claim('w1')
+            ledger.finish(row['id'], 'w1', [ITEM, ITEM], [])
+            ledger.mark_items_merged([(row['id'], 0)], 'night-1')
+            for pairs in ([(row['id'], 0)], [(row['id'], 2)], [(ledger.rows()[1]['id'], 0)]):
+                with self.assertRaises(hl.LedgerError):
+                    ledger.mark_items_merged(pairs, 'night-2')
+            self.assertEqual(ledger.merged_items(), {(row['id'], 0)})
+
+    def test_the_collector_mark_is_kept_between_runs(self):
+        with self.ledger() as ledger:
+            self.assertIsNone(ledger.get_meta('collected_until'))
+            ledger.set_meta('collected_until', 123.5)
+        with self.ledger() as ledger:
+            self.assertEqual(ledger.get_meta('collected_until'), 123.5)
+
+    def test_a_first_version_ledger_is_upgraded_in_place_and_keeps_its_rows(self):
+        db = sqlite3.connect(self.path)
+        db.execute('CREATE TABLE conversations (id INTEGER PRIMARY KEY, agent TEXT NOT NULL,'
+                   ' conversation TEXT NOT NULL, after REAL, through REAL NOT NULL, content_hash TEXT NOT NULL,'
+                   ' prompt_version TEXT NOT NULL, status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,'
+                   ' last_error TEXT, next_attempt_at REAL, lease_worker TEXT, lease_started REAL,'
+                   ' tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0,'
+                   ' cost_usd REAL NOT NULL DEFAULT 0, parts TEXT NOT NULL, items TEXT, problems TEXT, merged TEXT,'
+                   ' created REAL NOT NULL, updated REAL NOT NULL)')
+        db.execute("INSERT INTO conversations (agent, conversation, through, content_hash, prompt_version, status,"
+                   " parts, items, created, updated) VALUES ('hermes', 'a', 5, 'h', 'p', 'done', '[]', '[]', 1, 1)")
+        db.execute('PRAGMA user_version=1')
+        db.commit()
+        db.close()
+        with self.ledger() as ledger:
+            self.assertEqual([r['conversation'] for r in ledger.rows()], ['a'])
+            self.assertEqual(ledger.merged_items(), set())
+        db = sqlite3.connect(self.path)
+        self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], hl.SCHEMA_VERSION)
+        db.close()
+
     def test_a_foreign_database_is_refused_and_left_untouched(self):
         db = sqlite3.connect(self.path)
         db.execute('CREATE TABLE other (x)')

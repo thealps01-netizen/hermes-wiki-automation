@@ -5,9 +5,10 @@ half way and the whole run is collected again. Here every conversation (or the n
 its own ledger row (`harvest_ledger.py`) and is read by the extractor (`harvest_extract.py`) on
 its own, so one failure stays one row and the cost of each conversation is recorded.
 
-This module writes only the ledger and, with --merge, the shadow folder. It never touches
-harvest-state.json, the inbox, the wiki or the current harvest, so it can run in shadow next to
-the current harvest (design section 5, step 2). Drafting is `harvest_merge.py`'s job.
+This module's commands write only the ledger and, with --merge, the shadow folder; they never touch
+harvest-state.json, the inbox, the wiki or the current harvest, so they are safe for trials. The
+nightly job is `harvest_night.py`, which uses these functions and puts its drafts in the inbox.
+Drafting is `harvest_merge.py`'s job.
 
 USAGE
   python harvest_pipeline.py --collect --since ISO              queue what is new (no model call)
@@ -30,6 +31,7 @@ import os
 import shutil
 import socket
 import sys
+import time
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -42,10 +44,11 @@ import harvest_merge as hm  # noqa: E402
 from workflow_paths import PathRefused  # noqa: E402
 
 RETRY_AFTER_SECONDS = 6 * 3600   # a failed call is tried again on a later run, never in a tight loop
-# Hermes sessions not read (owner decision 2026-10-26): kanban cards wait for their own cheaper digest
-# lane (design section 6); tool sessions are the same task run many times over (benchmarks), so their
-# items only repeat each other. The current harvest's own skips (cron, oneshot, subagents) stay in its reader.
-SKIPPED_SOURCES = ('kanban', 'tool')
+# Hermes sessions not read (owner decision 2026-10-26): tool sessions are the same task run many times
+# over (benchmarks), so their items only repeat each other. Kanban sessions are read in full (the same
+# day's owner decision cancelled leaving them out). The current harvest's own skips (cron, oneshot,
+# subagents) stay in its reader.
+SKIPPED_SOURCES = ('tool',)
 
 
 def collect(ledger, conversations, max_chars, prompt_version):
@@ -64,20 +67,25 @@ def collect(ledger, conversations, max_chars, prompt_version):
     return dict(counts)
 
 
-def process(ledger, extract, worker, cap_usd=None):
+def process(ledger, extract, worker, cap_usd=None, deadline=None, clock=time.time):
     """Read due rows one at a time with `extract(parts) -> result` (harvest_extract.extract's shape).
     An invalid reply ends that row as `error` and the next row is read; a failed model call leaves the
     row waiting for a later run and stops this one, so a provider outage is not paid for row by row."""
     report = {'done': 0, 'empty': 0, 'error': 0, 'waiting': 0, 'cost_usd': 0.0, 'stopped': None}
-    dearest = 0.0
+    dearest = slowest = 0.0
     while True:
         if hx.over_cap(report['cost_usd'], dearest, cap_usd):
             report['stopped'] = f'cost cap ${cap_usd:.2f} reached'
             return report
+        if hx.out_of_time(clock(), slowest, deadline):
+            report['stopped'] = 'time limit reached; the rest waits for the next night'
+            return report
         row = ledger.claim(worker)
         if row is None:
             return report
+        started = clock()
         result = extract(row['parts'])
+        slowest = max(slowest, clock() - started)
         spent = dict(cost_usd=result['cost_usd'], tokens_in=result['tokens_in'], tokens_out=result['tokens_out'])
         report['cost_usd'] += result['cost_usd'] or 0.0
         dearest = max(dearest, result['cost_usd'] or 0.0)
@@ -116,7 +124,8 @@ def without_skipped(conversations, skipped):
 
 
 def found_conversations(cfg, since, until, report):
-    """Every enabled agent's conversations in (since, until]; an agent that cannot be read is reported."""
+    """Every enabled agent's conversations in (since, until]; an agent that cannot be read is reported.
+    `since` is one time for all agents or {agent: time}."""
     import wiki_session_harvest as wsh
     agents = {**wsh.DEFAULTS['agents'], **((cfg.get('harvest') or {}).get('agents') or {})}
     roots = wsh.agent_roots(cfg)
@@ -125,7 +134,7 @@ def found_conversations(cfg, since, until, report):
             report[agent] = 'off'
             continue
         try:
-            found = list(wsh.READERS[agent](roots[agent], since, until))
+            found = list(wsh.READERS[agent](roots[agent], since[agent] if isinstance(since, dict) else since, until))
         except FileNotFoundError as exc:
             report[agent] = f'not found ({exc})'
             continue
@@ -134,7 +143,7 @@ def found_conversations(cfg, since, until, report):
             continue
         found = [(agent, *conversation) for conversation in found]
         kept = without_skipped(found, skipped_hermes(roots[agent]) if agent == 'hermes' else set())
-        report[agent] = f'{len(kept)} conversation(s)' + (f', {len(found) - len(kept)} kanban/tool skipped'
+        report[agent] = f'{len(kept)} conversation(s)' + (f', {len(found) - len(kept)} tool session(s) skipped'
                                                          if len(kept) < len(found) else '')
         yield from kept
 

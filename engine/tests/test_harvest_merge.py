@@ -345,6 +345,64 @@ class Night(Wiki):
         self.assertIn('overloaded', report['stopped'])
         self.assertEqual(len(self.ledger.unmerged()), 1)
 
+    def test_after_a_stopped_night_only_the_items_not_reached_are_offered_again(self):
+        self.finished('a', [DECISION, dict(DECISION, claim='Second subject.')])
+        route = json.dumps({'routes': [{'item': 'I1', 'target': TARGET}, {'item': 'I2', 'new': 'second-subject'}]})
+        good = draft_reply({'kind': 'update', 'summary': 's', 'why': 'w'}, UPDATED)
+        call, prompts = self.caller({'route': [route], 'draft': [good]})
+        report = hm.merge_night(self.ledger, self.wiki, self.out, call, RULES, 'night-1', '2026-10-26', cap_usd=0.025)
+        self.assertIn('cap', report['stopped'])
+        self.assertEqual(len(report['candidates']), 1)
+        self.assertEqual(len(self.ledger.unmerged()), 1)
+        call, prompts = self.caller({'route': [json.dumps({'routes': [{'item': 'I1', 'new': 'second-subject'}]})],
+                                     'draft': ['=== METADATA ===\n{"kind": "none", "why": "nothing new"}\n']})
+        report = hm.merge_night(self.ledger, self.wiki, self.root / 'night-2', call, RULES, 'night-2', '2026-10-27')
+        self.assertIn('Second subject.', prompts[0])
+        self.assertNotIn('raised the skill nudge interval', prompts[0])
+        self.assertEqual(self.ledger.unmerged(), [])
+
+    def test_candidates_can_be_stored_apart_from_the_replies_and_report(self):
+        self.finished('a', [DECISION])
+        call, _ = self.caller({'route': [json.dumps({'routes': [{'item': 'I1', 'target': TARGET}]})],
+                               'draft': [draft_reply({'kind': 'update', 'summary': 's', 'why': 'w'}, UPDATED)]})
+        inbox = self.root / 'inbox' / 'night-1' / 'candidates'
+        hm.merge_night(self.ledger, self.wiki, self.out, call, RULES, 'night-1', '2026-10-26', candidates_dir=inbox)
+        self.assertTrue((inbox / '2026-10-14-skill-suggestions' / 'candidate.json').is_file())
+        self.assertFalse((self.out / 'candidates').exists())
+        self.assertTrue((self.out / 'report.json').is_file())
+
+    def test_an_item_dropped_with_a_reason_is_taken(self):
+        self.finished('a', [DECISION])
+        call, _ = self.caller({'route': [json.dumps({'routes': [{'item': 'I1', 'drop': 'chatter'}]})], 'draft': []})
+        report = self.run_night(call)
+        self.assertEqual(report['dropped'], {'I1': 'chatter'})
+        self.assertEqual(self.ledger.unmerged(), [])
+
+    def test_a_page_waiting_in_review_is_not_drafted_and_keeps_its_items(self):
+        self.finished('a', [DECISION])
+        call, prompts = self.caller({'route': [json.dumps({'routes': [{'item': 'I1', 'target': TARGET}]})], 'draft': []})
+        report = hm.merge_night(self.ledger, self.wiki, self.out, call, RULES, 'night-1', '2026-10-26', busy={TARGET})
+        self.assertEqual(len(prompts), 1)
+        self.assertEqual(report['waiting_on_review'], [{'target': TARGET, 'items': ['I1']}])
+        self.assertEqual(report['not_drafted'], [])
+        self.assertEqual(len(self.ledger.unmerged()), 1)
+
+    def test_the_clock_stops_the_night_before_a_call_that_could_run_past_the_deadline(self):
+        # Each call takes 100 s on this clock; after the route call at t=100 a draft call would end at 200.
+        self.finished('a', [DECISION])
+        now = [0.0]
+        calls = []
+
+        def call(prompt):
+            now[0] += 100
+            calls.append(prompt)
+            return json.dumps({'routes': [{'item': 'I1', 'target': TARGET}]}), {'cost_usd': 0.01}
+        report = hm.merge_night(self.ledger, self.wiki, self.out, call, RULES, 'night-1', '2026-10-26',
+                                deadline=150.0, clock=lambda: now[0])
+        self.assertEqual(len(calls), 1)
+        self.assertIn('time', report['stopped'])
+        self.assertEqual(len(self.ledger.unmerged()), 1)
+
     def test_a_night_with_nothing_to_draft_makes_no_call_and_marks_the_rows(self):
         self.finished('a', [])
         report = self.run_night(lambda prompt: self.fail('no call expected'))

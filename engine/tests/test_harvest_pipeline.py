@@ -110,6 +110,17 @@ class Process(Base):
         self.assertIn('cap', report['stopped'])
         self.assertAlmostEqual(report['cost_usd'], 0.3)
 
+    def test_the_clock_stops_reading_before_a_conversation_that_could_end_past_the_deadline(self):
+        self.queue('a', 'b', 'c')
+        now = [0.0]
+
+        def extract(parts):
+            now[0] += 100
+            return result([ITEM])
+        report = hp.process(self.ledger, extract, 'w', deadline=250.0, clock=lambda: now[0])
+        self.assertEqual([r['status'] for r in self.ledger.rows()], ['done', 'done', 'pending'])
+        self.assertIn('time', report['stopped'])
+
     def test_the_cost_cap_allows_calls_that_still_fit(self):
         self.queue('a', 'b', 'c')
         report = hp.process(self.ledger, lambda parts: result([ITEM], cost=0.3), 'w', cap_usd=0.65)
@@ -118,7 +129,7 @@ class Process(Base):
 
 
 class Sources(unittest.TestCase):
-    def test_kanban_and_tool_sessions_are_not_read(self):
+    def test_tool_sessions_are_not_read_and_kanban_sessions_are(self):
         import sqlite3
         with tempfile.TemporaryDirectory() as home:
             with sqlite3.connect(Path(home) / 'state.db') as con:
@@ -127,11 +138,11 @@ class Sources(unittest.TestCase):
                                 [('own', 'desktop'), ('cli', 'local'), ('card', 'kanban'), ('bench', 'tool'), ('old', None)])
             con.close()
             skipped = hp.skipped_hermes(Path(home))
-        self.assertEqual(skipped, {'card', 'bench'})
+        self.assertEqual(skipped, {'bench'})
         found = [('hermes', 'own', 'l', []), ('hermes', 'card', 'l', []), ('hermes', 'bench', 'l', []),
                  ('claude', 'card', 'l', []), ('hermes', 'old', 'l', [])]
         self.assertEqual([(a, c) for a, c, *_ in hp.without_skipped(found, skipped)],
-                         [('hermes', 'own'), ('claude', 'card'), ('hermes', 'old')])
+                         [('hermes', 'own'), ('hermes', 'card'), ('claude', 'card'), ('hermes', 'old')])
 
 
 if __name__ == '__main__':

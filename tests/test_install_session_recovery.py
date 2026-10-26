@@ -495,7 +495,7 @@ class InstallationRecoveryTests(unittest.TestCase):
         response = self.post('recovery/apply', self.confirm_payload(review))
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()['state'], 'installed_paused')
-        self.assertEqual(len(json.loads((self.home / 'cron/jobs.json').read_bytes())['jobs']), 4)
+        self.assertEqual(len(json.loads((self.home / 'cron/jobs.json').read_bytes())['jobs']), 5)  # four upkeep jobs + Wiki Harvest (2.11.0)
         self.assertEqual(self.post('recovery/apply', self.confirm_payload(review)).status_code, 409)
 
     def test_real_native_job_save_death_resumes_original_half_operation_once(self):
@@ -519,7 +519,7 @@ class InstallationRecoveryTests(unittest.TestCase):
         response = self.post('recovery/apply', self.confirm_payload(review))
         self.assertEqual(response.status_code, 200, response.text)
         jobs = json.loads(jobs_path.read_bytes())['jobs']
-        self.assertEqual(len(jobs), 4)
+        self.assertEqual(len(jobs), 5)  # four upkeep jobs + Wiki Harvest (2.11.0)
         self.assertIn(saved_id, {job['id'] for job in jobs})
         self.assertTrue(all(job['enabled'] is False for job in jobs))
         self.assertEqual((self.wiki / 'wiki/index.md').read_bytes(), b'# Owner content\n')
