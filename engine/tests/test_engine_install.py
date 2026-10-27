@@ -1,4 +1,6 @@
 """Engine-owned setup uses isolated profile, code, project and data roots."""
+import contextlib
+import io
 import os
 from pathlib import Path
 import sys
@@ -256,7 +258,7 @@ class EngineInstallTests(unittest.TestCase):
         from cron.jobs import use_cron_store, list_jobs
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:
             base = Path(tmp)
-            for role in ('autocommit', 'ingest_watch', 'watchdog', 'session_harvest'):
+            for role in ('autocommit', 'ingest_watch', 'watchdog', 'harvest_night'):
                 with self.subTest(role=role):
                     home = base / role
                     home.mkdir()
@@ -346,9 +348,7 @@ class EngineInstallTests(unittest.TestCase):
                     jobs = list_jobs(include_disabled=True)
                     self.assertEqual(len(jobs), len(plan['job_definitions']))
                     self.assertTrue(all(job['enabled'] is False and job['state'] == 'paused' for job in jobs))
-                    agent = [job for job in jobs if not job['no_agent']]
-                    self.assertEqual(len(agent), 1)
-                    self.assertEqual(set(agent[0]['enabled_toolsets']), {'wiki_draft', 'no_mcp'})
+                    self.assertEqual([job['name'] for job in jobs if not job['no_agent']], [], 'every job is a script job')
                     ids = {job['id'] for job in jobs}
                     self.assertEqual(install.apply_plan(plan, plan['digest']), result)
                     self.assertEqual({job['id'] for job in list_jobs(include_disabled=True)}, ids)
@@ -486,8 +486,7 @@ class EngineInstallTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), original)
 
     def legacy(self, home, *, customize=None):
-        """Recreate what the pre-panel install.py left: CLI-created script jobs, an enabled agent
-        harvest job with a pre-run script, and a bare location."""
+        """Recreate what the pre-panel install.py left: CLI-created script jobs and a bare location."""
         from hermes_constants import set_hermes_home_override, reset_hermes_home_override
         from cron.jobs import use_cron_store, create_job
         previous = self.prepared(home)
@@ -501,10 +500,8 @@ class EngineInstallTests(unittest.TestCase):
             with use_cron_store(home):
                 mapping = {}
                 for role, spec in definitions.items():
-                    agent = spec['kind'] == 'agent'
-                    fields = dict(prompt='Earlier harvest prompt.' if agent else spec['description'],
-                        schedule=spec['default_schedule'], name=spec['name'], script=spec['launcher'],
-                        deliver='local', no_agent=not agent)
+                    fields = dict(prompt=spec['description'], schedule=spec['default_schedule'], name=spec['name'],
+                        script=spec['launcher'], deliver='local', no_agent=True)
                     fields.update((customize or {}).get(role, {}))
                     mapping[role] = create_job(**fields)['id']
         finally:
@@ -549,19 +546,15 @@ class EngineInstallTests(unittest.TestCase):
             install.verify_job_role(job, role, plan)
             for key in ('schedule', 'name', 'deliver', 'created_at'):
                 self.assertEqual(job[key], old[key], key)
-            if plan['job_definitions'][role]['kind'] == 'agent':
-                self.assertEqual((job['enabled'], job['state'], job['script'], job['next_run_at']), (False, 'paused', None, None))
-                self.assertEqual(job['paused_reason'], install.LEGACY_AGENT_PAUSED_REASON)
-            else:
-                self.assertEqual((job['enabled'], job['state'], job['prompt']), (old['enabled'], old['state'], old['prompt']))
-                self.assertEqual(Path(job['interpreter']).resolve(), Path(plan['installer_interpreter']).resolve())
+            self.assertEqual((job['enabled'], job['state'], job['prompt']), (old['enabled'], old['state'], old['prompt']))
+            self.assertEqual(Path(job['interpreter']).resolve(), Path(plan['installer_interpreter']).resolve())
         return after
 
     def test_legacy_jobs_are_adopted_in_place_by_the_exact_plan(self):
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:
             home = Path(tmp)
             cfg, mapping, code, data = self.legacy(home)
-            self.assertIn('agent', {spec['kind'] for spec in json.loads((code / 'jobs.json').read_bytes())['jobs'].values()})
+            self.assertEqual({spec['kind'] for spec in json.loads((code / 'jobs.json').read_bytes())['jobs'].values()}, {'script'})
             before = self.native_jobs(home)
             plan = install.build_plan(cfg, home, code, data)
             self.assertEqual(plan['legacy_adoptions'], mapping)
@@ -635,7 +628,7 @@ class EngineInstallTests(unittest.TestCase):
 
     def test_customized_legacy_job_is_refused_at_preview_before_anything_is_written(self):
         for customize in ({'watchdog': {'skills': ['owner-skill']}}, {'watchdog': {'deliver': 'telegram'}},
-                {'session_harvest': {'enabled_toolsets': ['web']}}):
+                {'harvest_night': {'enabled_toolsets': ['web']}}):
             with self.subTest(customize=customize), tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:
                 home = Path(tmp)
                 cfg, mapping, code, data = self.legacy(home, customize=customize)
@@ -695,13 +688,10 @@ class EngineInstallTests(unittest.TestCase):
         install.apply_plan(first, first['digest'])
         return settings_file, Path(initial['engine_dir']), Path(initial['audit_dir'])
 
-    def release_copy(self, home, code, name, new_prompt=False):
+    def release_copy(self, home, code, name):
         import shutil
         new_code = home / name
         shutil.copytree(code, new_code)
-        if new_prompt:
-            prompt = new_code / 'harvest_prompt.md'
-            prompt.write_text(prompt.read_text(encoding='utf-8') + '\nNew release instruction.\n', encoding='utf-8')
         return new_code
 
     def native(self, home):
@@ -714,9 +704,6 @@ class EngineInstallTests(unittest.TestCase):
         finally:
             reset_hermes_home_override(token)
 
-    def drafting_job(self, home):
-        return next(job for job in self.native(home).values() if not job['no_agent'])
-
     def edit_job(self, home, job_id, updates):
         from hermes_constants import set_hermes_home_override, reset_hermes_home_override
         from cron.jobs import use_cron_store, update_job
@@ -727,26 +714,6 @@ class EngineInstallTests(unittest.TestCase):
         finally:
             reset_hermes_home_override(token)
 
-    def test_update_carries_a_new_release_prompt_into_the_owned_drafting_job(self):
-        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:
-            home = Path(tmp)
-            settings_file, code, data = self.installed_with_jobs(home)
-            job = self.drafting_job(home)
-            self.edit_job(home, job['id'], {'schedule': '30 21 * * *', 'enabled': True, 'state': 'scheduled'})
-            before = self.drafting_job(home)
-            new_code = self.release_copy(home, code, 'code-new-prompt', new_prompt=True)
-            plan = install.build_plan(json.loads(settings_file.read_bytes()), home, new_code, data)
-            self.assertEqual({role: entry['field'] for role, entry in plan['job_refresh'].items()},
-                             {'session_harvest': 'prompt'})
-            result = install.apply_plan(plan, plan['digest'])
-            self.assertTrue(result['ok'])
-            after = self.drafting_job(home)
-            self.assertEqual(after['prompt'], (new_code / 'harvest_prompt.md').read_text(encoding='utf-8').strip())
-            for key in ('id', 'schedule', 'enabled', 'state', 'origin', 'enabled_toolsets'):
-                self.assertEqual(after[key], before[key], key)
-            self.assertEqual(install.apply_plan(plan, plan['digest']), result)
-            self.assertEqual(self.drafting_job(home)['prompt'], after['prompt'])
-
     def test_unchanged_release_plans_no_job_refresh(self):
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:
             home = Path(tmp)
@@ -755,50 +722,135 @@ class EngineInstallTests(unittest.TestCase):
                                       self.release_copy(home, code, 'code-same'), data)
             self.assertNotIn('job_refresh', plan)
 
-    def test_hand_edited_drafting_prompt_is_still_refused_and_preserved(self):
-        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:
-            home = Path(tmp)
-            settings_file, code, data = self.installed_with_jobs(home)
-            job = self.drafting_job(home)
-            self.edit_job(home, job['id'], {'prompt': 'Owner wrote this prompt.'})
-            new_code = self.release_copy(home, code, 'code-new-prompt', new_prompt=True)
-            with self.assertRaisesRegex(wikiconfig.ConfigError, 'customized drafting job'):
-                install.build_plan(json.loads(settings_file.read_bytes()), home, new_code, data)
-            self.assertEqual(self.drafting_job(home)['prompt'], 'Owner wrote this prompt.')
+    def retired_harvest_job(self, home, settings_file, *, origin=True, script=None, mapped=True):
+        """A job shaped like the Wiki Session Harvest an earlier installation created and mapped."""
+        from hermes_constants import set_hermes_home_override, reset_hermes_home_override
+        from cron.jobs import use_cron_store, create_job
+        token = set_hermes_home_override(home)
+        try:
+            with use_cron_store(home):
+                job = create_job(prompt='Earlier drafting prompt.', schedule='30 21 * * *', name='Wiki Session Harvest',
+                    repeat=None, deliver='local', script=script, no_agent=False,
+                    origin={'engine_installation': 'a' * 64, 'engine_role': 'session_harvest'} if origin else None,
+                    enabled_toolsets=['wiki_draft', 'no_mcp'], paused=True, paused_reason='earlier installer')
+        finally:
+            reset_hermes_home_override(token)
+        if mapped:
+            cfg = json.loads(settings_file.read_bytes())
+            cfg['jobs'] = {**cfg['jobs'], 'session_harvest': job['id']}
+            settings_file.write_bytes(json.dumps(cfg).encode())
+        return job['id']
 
-    def test_owner_edit_after_preview_is_refused_before_the_prompt_is_replaced(self):
+    def test_retired_drafting_job_is_removed_unmapped_and_never_recreated(self):
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:
             home = Path(tmp)
             settings_file, code, data = self.installed_with_jobs(home)
-            new_code = self.release_copy(home, code, 'code-new-prompt', new_prompt=True)
-            plan = install.build_plan(json.loads(settings_file.read_bytes()), home, new_code, data)
-            job = self.drafting_job(home)
-            self.edit_job(home, job['id'], {'prompt': 'Owner edit after preview.'})
+            retired = self.retired_harvest_job(home, settings_file)
+            owners = self.retired_harvest_job(home, settings_file, mapped=False)
+            plan = install.build_plan(json.loads(settings_file.read_bytes()), home, self.release_copy(home, code, 'code-2'), data)
+            self.assertEqual(plan['job_retire'], {'session_harvest': retired})
+            self.assertNotIn('session_harvest', plan['settings']['jobs'])
+            result = install.apply_plan(plan, plan['digest'])
+            self.assertTrue(result['ok'])
+            after = self.native(home)
+            self.assertNotIn(retired, after)
+            self.assertIn(owners, after, 'an unmapped same-name job is the owner\'s and stays')
+            self.assertNotIn('session_harvest', json.loads(settings_file.read_bytes())['jobs'])
+            self.assertEqual(install.apply_plan(plan, plan['digest']), result)
+            self.assertEqual(self.native(home), after)
+            again = install.build_plan(json.loads(settings_file.read_bytes()), home, self.release_copy(home, code, 'code-3'), data)
+            self.assertNotIn('job_retire', again)
+            install.apply_plan(again, again['digest'])
+            self.assertEqual(set(self.native(home)), set(after), 'a retired role was recreated')
+
+    def test_retired_role_with_a_missing_job_is_only_unmapped(self):
+        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:
+            home = Path(tmp)
+            settings_file, code, data = self.installed_with_jobs(home)
+            cfg = json.loads(settings_file.read_bytes())
+            cfg['jobs'] = {**cfg['jobs'], 'session_harvest': '5ceb0986beea'}
+            settings_file.write_bytes(json.dumps(cfg).encode())
+            before = self.native(home)
+            plan = install.build_plan(cfg, home, self.release_copy(home, code, 'code-2'), data)
+            self.assertNotIn('job_retire', plan)
+            self.assertTrue(install.apply_plan(plan, plan['digest'])['ok'])
+            self.assertEqual(set(self.native(home)), set(before))
+            self.assertNotIn('session_harvest', json.loads(settings_file.read_bytes())['jobs'])
+
+    def test_mapped_retired_role_job_without_an_installation_shape_is_left_alone(self):
+        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:
+            home = Path(tmp)
+            settings_file, code, data = self.installed_with_jobs(home)
+            owners = self.retired_harvest_job(home, settings_file, origin=False, script='owner_gate.py')
+            plan = install.build_plan(json.loads(settings_file.read_bytes()), home, self.release_copy(home, code, 'code-2'), data)
+            self.assertNotIn('job_retire', plan)
+            self.assertTrue(install.apply_plan(plan, plan['digest'])['ok'])
+            self.assertIn(owners, self.native(home))
+
+    def test_retired_job_changed_after_preview_is_refused_and_preserved(self):
+        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:
+            home = Path(tmp)
+            settings_file, code, data = self.installed_with_jobs(home)
+            retired = self.retired_harvest_job(home, settings_file)
+            plan = install.build_plan(json.loads(settings_file.read_bytes()), home, self.release_copy(home, code, 'code-2'), data)
+            self.edit_job(home, retired, {'prompt': 'Owner rewrote this job after the preview.'})
             with self.assertRaises(wikiconfig.ConfigError):
                 install.apply_plan(plan, plan['digest'])
-            self.assertEqual(self.drafting_job(home)['prompt'], 'Owner edit after preview.')
+            self.assertEqual(self.native(home)[retired]['prompt'], 'Owner rewrote this job after the preview.')
 
-    def test_prompt_refresh_recovers_after_dying_once_the_prompt_was_written(self):
+    def test_retirement_recovers_after_dying_once_the_job_was_removed(self):
         import candidate_apply
 
         class Died(Exception):
             pass
 
         def die(point):
-            if point.startswith('after-job-refresh:'):
+            if point.startswith('after-retire-job:'):
                 raise Died(point)
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:
             home = Path(tmp)
             settings_file, code, data = self.installed_with_jobs(home)
-            new_code = self.release_copy(home, code, 'code-new-prompt', new_prompt=True)
-            plan = install.build_plan(json.loads(settings_file.read_bytes()), home, new_code, data)
+            retired = self.retired_harvest_job(home, settings_file)
+            plan = install.build_plan(json.loads(settings_file.read_bytes()), home, self.release_copy(home, code, 'code-2'), data)
             with patch.object(candidate_apply, '_checkpoint', side_effect=die), self.assertRaises(Died):
                 install.apply_plan(plan, plan['digest'])
-            new_prompt = (new_code / 'harvest_prompt.md').read_text(encoding='utf-8').strip()
-            self.assertEqual(self.drafting_job(home)['prompt'], new_prompt)
+            self.assertNotIn(retired, self.native(home))
             facts = install.validate_installation_recovery(plan, plan['digest'])
             self.assertTrue(install.apply_plan(plan, plan['digest'], expected_recovery_state=facts['current_state_digest'])['ok'])
-            self.assertEqual(self.drafting_job(home)['prompt'], new_prompt)
+            self.assertNotIn(retired, self.native(home))
+            self.assertNotIn('session_harvest', json.loads(settings_file.read_bytes())['jobs'])
+            print('INSTALL_RETIRED_JOB_CASES checked=5')
+
+    def test_the_command_line_installer_removes_a_retired_job_under_the_same_rule(self):
+        origin = {'engine_installation': 'a' * 64, 'engine_role': 'session_harvest'}
+        scripts = [{'id': f'job-{role}', 'name': name, 'script': launcher, 'no_agent': True}
+                   for role, name, launcher in install.JOBS]
+        mapping = {role: f'job-{role}' for role, _, _ in install.JOBS}
+
+        def sync(retired_job, *, dry=False, remove_code=0):
+            calls, saved = [], []
+            records = scripts + [retired_job, {'id': 'owners', 'name': 'Wiki Session Harvest', 'prompt': 'mine'}]
+            cfg = {'jobs': {**mapping, 'session_harvest': retired_job['id']}, 'deliver': 'local'}
+
+            def cli(args):
+                calls.append(args)
+                return (remove_code if args[:2] == ['cron', 'remove'] else 0), 'fixture'
+            with patch.object(install, 'read_jobs', return_value=records), patch.object(install, 'hermes_cli', side_effect=cli), \
+                    patch.object(install.wikiconfig, 'save', side_effect=lambda patch_: saved.append(patch_)), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                ids = install.sync_jobs(cfg, Path('unused-home'), dry)
+            return [args[2] for args in calls if args[:2] == ['cron', 'remove']], ids, saved
+
+        owned = {'id': 'retired', 'name': 'Wiki Session Harvest', 'origin': origin, 'no_agent': False}
+        removed, ids, saved = sync(owned)
+        self.assertEqual(removed, ['retired'], 'only the mapped installation-shaped job is removed, never the owner\'s')
+        self.assertEqual((ids, saved), (mapping, [{'jobs': mapping}]))
+        removed, ids, _ = sync(owned, remove_code=1)
+        self.assertEqual((removed, ids.get('session_harvest')), (['retired'], 'retired'), 'a failed removal keeps its mapping')
+        removed, ids, _ = sync({**owned, 'origin': None, 'script': 'owner_gate.py'})
+        self.assertEqual((removed, ids), ([], mapping), 'a job the owner reshaped is left alone and only unmapped')
+        removed, ids, saved = sync(owned, dry=True)
+        self.assertEqual((removed, saved, ids.get('session_harvest')), ([], [], 'retired'), 'a dry run changed something')
 
     def test_hermes_python_change_moves_owned_script_jobs_to_the_new_interpreter(self):
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:

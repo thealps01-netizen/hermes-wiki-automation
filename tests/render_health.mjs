@@ -263,7 +263,7 @@ async function mount(appLocale = 'en', mode = 'data', target = 'health') {
         if (path === '/owner/recoverable') return folioControl.recovery?.() || { ok: true, operations: [] }
         if (path === '/owner/activation') {
           return { ok: true, active: true, ready: true, code_changed: false, owner: 'local_owner',
-            job: { id: 'job-h', name: 'Wiki Session Harvest', schedule: '30 21 * * *' }, plan_digest: 'd'.repeat(64) }
+            plan_digest: 'd'.repeat(64) }
         }
       }
       // The Metro view mounts first; run-history failure modes must not corrupt its independent reads.

@@ -145,5 +145,39 @@ class Sources(unittest.TestCase):
                          [('hermes', 'own'), ('hermes', 'card'), ('claude', 'card'), ('hermes', 'old')])
 
 
+
+class Found(unittest.TestCase):
+    """Each enabled source is read on its own: a missing or unreadable one is named and the others are read."""
+
+    def found(self, readers, agents):
+        from unittest import mock
+        import wiki_session_harvest as wsh
+        report = {}
+        cfg = {'harvest': {'agents': {name: name in agents for name in wsh.READERS}}}
+        roots = {name: Path(self.id()) / name for name in wsh.READERS}
+        with mock.patch.object(wsh, 'agent_roots', return_value=roots), mock.patch.dict(wsh.READERS, readers), \
+                mock.patch.object(hp, 'skipped_hermes', return_value=set()):
+            rows = list(hp.found_conversations(cfg, 0.0, 1000.0, report))
+        return rows, report
+
+    def test_a_source_that_is_not_installed_is_skipped_and_the_others_are_read(self):
+        def absent(root, since, until):
+            raise FileNotFoundError(f'{root} not found')
+        rows, report = self.found({'hermes': lambda root, since, until: [('one', 'Fixture', FIRST)],
+                                   'codex': absent, 'claude': absent}, ('hermes', 'codex', 'claude'))
+        self.assertEqual(rows, [('hermes', 'one', 'Fixture', FIRST)])
+        self.assertEqual(report['hermes'], '1 conversation(s)')
+        self.assertTrue(report['codex'].startswith('not found'))
+        self.assertEqual(report['antigravity'], 'off')
+
+    def test_an_unreadable_source_is_named_never_reported_as_empty(self):
+        def broken(root, since, until):
+            raise ValueError('Fixture unreadable')
+        rows, report = self.found({'hermes': lambda root, since, until: [('one', 'Fixture', FIRST)],
+                                   'antigravity': broken}, ('hermes', 'antigravity'))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(report['antigravity'], 'UNREADABLE (ValueError: Fixture unreadable)')
+
+
 if __name__ == '__main__':
     unittest.main()

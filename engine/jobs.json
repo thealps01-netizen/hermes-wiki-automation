@@ -1,5 +1,5 @@
 {
-  "_about": "The wiki automation's scheduled jobs. This file in the engine is the single definition: install.py creates and updates the Hermes cron jobs from it, and panels only read it. Descriptions are shown as the job's prompt in the Jobs list; they carry no machine-specific paths, because the scripts resolve every path from settings.json.",
+  "_about": "The wiki automation's scheduled jobs. This file in the engine is the single definition: install.py creates and updates the Hermes cron jobs from it, and panels only read it. Descriptions are shown as the job's prompt in the Jobs list; they carry no machine-specific paths, because the scripts resolve every path from settings.json. 'retired' lists roles an earlier release installed; the installer removes their jobs and never recreates them.",
   "jobs": {
     "autocommit": {
       "name": "Wiki Auto-Commit",
@@ -28,16 +28,6 @@
       "default_schedule": "0 9 * * *",
       "description": "Watch Dog (script-only job). WHAT IT DOES: a daily health audit of the wiki; it reports and never repairs. Checks: page loss against the last count, broken and duplicate-named links, pages missing from the index, isolated pages (the app's own graph rule), purpose.md/schema.md and the project id, mirror freshness, the app's MCP access, and drift between skill copies of the agents. WHY: most wiki damage is silent. HOW TO READ: one quiet line = healthy; a block of findings = each line says what is wrong and what to do; findings are also kept in alerts.log for the panel."
     },
-    "session_harvest": {
-      "name": "Wiki Session Harvest",
-      "kind": "agent",
-      "launcher": "palantir_wiki_session_harvest.py",
-      "impl": "wiki_session_harvest.py",
-      "prompt_file": "harvest_prompt.md",
-      "schedule_key": "session_harvest",
-      "default_schedule": "30 21 * * *",
-      "description": "Wiki Session Harvest (script gate + agent). WHAT IT DOES: collects the conversations finished since the last harvest (Hermes, Codex, Claude Code, Antigravity) and drafts wiki source candidates from the decisions in them, with evidence captured as files. It never writes to the wiki: the owner approves each candidate. COST: when nothing new was said the script stops the run before any model is called."
-    },
     "harvest_night": {
       "name": "Wiki Harvest",
       "kind": "script",
@@ -45,7 +35,15 @@
       "impl": "harvest_night.py",
       "schedule_key": "harvest_night",
       "default_schedule": "30 21 * * *",
-      "description": "Wiki Harvest (script-only job; the successor of Wiki Session Harvest, which stays as the drafting job the approval system is bound to). WHAT IT DOES: reads every conversation that changed since the last run (Hermes except tool sessions, Codex, Claude Code, Antigravity) one by one into the harvest ledger, then merges the new decisions, findings and articles into at most one draft per wiki page. Drafts appear in Review; nothing reaches the wiki without the owner's approval. A page that already has a draft waiting in Review is not drafted again until that draft is approved or rejected. LIMITS: a cost cap and a time limit per night (settings harvest_pipeline: cap_usd, minutes); what a night does not reach waits for the next night. HOW TO READ: one JSON line; 'stopped' says why the night ended early, 'merge' lists drafts, refusals, pages not reached and pages waiting for a review; the full report and every model reply are kept in harvest-nights/<night>/."
+      "description": "Wiki Harvest (script-only job; it replaced the Wiki Session Harvest agent job). WHAT IT DOES: reads every conversation that changed since the last run (Hermes except tool sessions, Codex, Claude Code, Antigravity) one by one into the harvest ledger, then merges the new decisions, findings and articles into at most one draft per wiki page. Drafts appear in Review; nothing reaches the wiki without the owner's approval. A page that already has a draft waiting in Review is not drafted again until that draft is approved or rejected. LIMITS: a cost cap and a time limit per night (settings harvest_pipeline: cap_usd, minutes); what a night does not reach waits for the next night. HOW TO READ: one JSON line; 'stopped' says why the night ended early, 'merge' lists drafts, refusals, pages not reached and pages waiting for a review; the full report and every model reply are kept in harvest-nights/<night>/."
+    }
+  },
+  "retired": {
+    "session_harvest": {
+      "name": "Wiki Session Harvest",
+      "launcher": "palantir_wiki_session_harvest.py",
+      "replaced_by": "harvest_night",
+      "why": "The agent job drafted candidates before Wiki Harvest did the same as a script; Review approvals no longer depend on it. The installer removes this job when the profile's engine settings map it and it still has the shape an installation gave it; any other job with this name is the owner's and is left alone."
     }
   }
 }

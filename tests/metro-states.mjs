@@ -18,7 +18,7 @@ import { fixture as healthFixture, FINDING_CASES } from './fixture-health.mjs'
 export const PRIORITY = ['read-failed', 'engine', 'harvest-failed', 'job-broken', 'drafts', 'problems', 'paused',
   'running', 'good']
 
-/** The Session Harvest adapters in `/harvest/status` order, with the words the line must carry. */
+/** The Wiki Harvest conversation sources in `/harvest/status` order, with the words the line must carry. */
 export const ADAPTERS = [
   { id: 'hermes', name: 'Hermes' },
   { id: 'codex', name: 'Codex' },
@@ -59,13 +59,14 @@ export const EVIDENCE_REQUEST = { id: 'hermes-plugin-pin-handling-d923a5eb',
 export const UNREADABLE_DRAFT = 'the candidates could not be read: exit 1: !! refused: New source target already exists'
 export const OLDER_ENGINE = '3'.repeat(40)
 
-const IDS = { autocommit: 'job-ac', ingest_watch: 'job-iw', watchdog: 'job-wd', session_harvest: 'job-sh' }
+const IDS = { autocommit: 'job-ac', ingest_watch: 'job-iw', watchdog: 'job-wd', harvest_night: 'job-hn' }
 const NAMES = { autocommit: 'Wiki Auto-Commit', ingest_watch: 'Wiki Ingest Watch', watchdog: 'Watch Dog',
-  session_harvest: 'Wiki Session Harvest' }
+  harvest_night: 'Wiki Harvest' }
 const SCHEDULES = { autocommit: '0 * * * *', ingest_watch: '*/30 * * * *', watchdog: '0 9 * * *',
-  session_harvest: '30 21 * * *' }
+  harvest_night: '30 21 * * *' }
 const IMPL = { autocommit: 'wiki_autocommit.py', ingest_watch: 'wiki_ingest_watch.py', watchdog: 'watchdog.py',
-  session_harvest: 'wiki_session_harvest.py' }
+  harvest_night: 'harvest_night.py' }
+const HARVEST_AT = Object.keys(IDS).indexOf('harvest_night')
 const PROBLEM_KINDS = ['dup', 'wikilink', 'mirror']
 export const PROBLEMS = FINDING_CASES.filter(f => PROBLEM_KINDS.includes(f.kind))
 
@@ -86,31 +87,30 @@ const unreadIds = c => [].concat(c.unreadable || [])
 export const UNREAD_REPORT = 'UNREADABLE (ValueError: transcript_full.jsonl line 2 is not JSON)'
 
 /**
- * The engine's `--last-run` answer as `/harvest/status` carries it. The newest run belongs to the
- * harvest's newest cron run (`run-job-sh`) and is completed unless `notCommitted`; an engine older
- * than `--last-run` (`oldEngine`) reports `last_run_supported: false` and stops every line while a
- * folder is missing.
+ * The engine's night record (`harvest_night.py --status`) as `/harvest/status` carries it. It started
+ * with the harvest's newest cron run (`run-job-hn`), unless `staleNight` puts it a day earlier; an
+ * engine older than the night status (`oldEngine`) reports `last_night_supported: false` and no night.
  */
-function lastRunOf(c) {
-  if (c.oldEngine) return { last_run_supported: false, last_run: null }
+function lastNightOf(c) {
+  if (c.oldEngine) return { last_night_supported: false, last_night: null }
   const agents = Object.fromEntries(ADAPTERS.map(a => [a.id, missingIds(c).includes(a.id) ? 'not found (fixture)'
     : unreadIds(c).includes(a.id) ? UNREAD_REPORT : '2 conversation(s)']))
-  return { last_run_supported: true, last_run: { run: '20261018-213042-590db30b7052', execution_id: `run-${IDS.session_harvest}`,
-    created: isoIn(-20), committed: !c.notCommitted, status: c.notCommitted ? null : 'drafted', agents,
-    stop_reason: c.stopReason ? { code: 'unread_input', detail: c.stopReason } : null,
-    cost_usd: typeof c.costUsd === 'number' ? c.costUsd : null } }
+  const started = isoIn(c.staleNight ? -(20 + HARVEST_AT * 7) - 1440 : -(20 + HARVEST_AT * 7))
+  return { last_night_supported: true, last_night: { night: '20261018-213042-590db30b7052', started,
+    finished: shift(started, 1), ok: true, stopped: c.stopReason || null, error: null,
+    cost_usd: typeof c.costUsd === 'number' ? c.costUsd : 0.42, drafts: c.nightDrafts ?? 2, agents } }
 }
-const runFailed = (role, c) => (role === 'session_harvest' && Boolean(c.harvestFailed))
+const runFailed = (role, c) => (role === 'harvest_night' && Boolean(c.harvestFailed))
   || (role === 'watchdog' && Boolean(c.checkExit)) || (role === 'ingest_watch' && Boolean(c.sourcesFailed))
-const failError = role => (role === 'session_harvest' ? ERRORS.harvest : role === 'ingest_watch' ? ERRORS.sources : null)
+const failError = role => (role === 'harvest_night' ? ERRORS.harvest : role === 'ingest_watch' ? ERRORS.sources : null)
 
 function jobRow(role, c) {
   const schedule = SCHEDULES[role]
   const slot = lastRun(schedule, Date.now() - 60000) || isoIn(-60)
   const failed = runFailed(role, c)
-  const paused = role === 'session_harvest' && c.paused
+  const paused = role === 'harvest_night' && c.paused
   return {
-    role, name: NAMES[role], kind: role === 'session_harvest' ? 'agent' : 'script', id: IDS[role], live: true,
+    role, name: NAMES[role], kind: 'script', id: IDS[role], live: true,
     state: paused ? 'paused' : 'scheduled', schedule, planned_schedule: schedule, schedule_source: 'store',
     next_run_at: paused ? null : nextRuns(schedule, 1)[0], last_run_at: shift(slot, 0),
     last_status: failed ? 'error' : 'ok', last_error: failed ? failError(role) : null, dispatch: null,
@@ -130,7 +130,7 @@ function healthPayload(c) {
   if (c.richHistory) return healthFixture()
   const now = Date.now()
   const runsOut = Object.keys(IDS).map((role, i) => {
-    const harvest = role === 'session_harvest'
+    const harvest = role === 'harvest_night'
     // lateMorning: the three morning jobs fired together, 91 minutes after their 09:00-style slot (m-13).
     const late = c.lateMorning && !harvest
     const at = isoIn(late ? -20 : -(20 + i * 7), now)
@@ -161,7 +161,7 @@ function healthPayload(c) {
   const registry = Object.keys(IDS).map(role => {
     const run = runsOut.find(r => r.job_id === IDS[role])
     return { id: IDS[role], name: NAMES[role], live: true, schedule: SCHEDULES[role], script: IMPL[role], mode: 'script',
-      deliver: 'ntfy', state: role === 'session_harvest' && c.paused ? 'paused' : 'scheduled', enabled: true,
+      deliver: 'ntfy', state: role === 'harvest_night' && c.paused ? 'paused' : 'scheduled', enabled: true,
       last_status: run.status === 'failed' ? 'error' : 'ok', last_error: run.status === 'failed' ? failError(role) : null,
       last_run_at: run.at, next_run_at: healthStamp(nextRuns(SCHEDULES[role], 1)[0]), runs: 1,
       failed: run.status === 'failed' ? 1 : 0, silent: run.silent ? 1 : 0, delivered: 0,
@@ -228,13 +228,11 @@ export function world(conditions = {}) {
     conditions: c,
     automation: auto,
     engine: engineStatus(c.engine || 'installed_with_existing_jobs', c.engineUpdate ? OLDER_ENGINE : undefined),
-    owner: { ok: true, active: true, ready: true, code_changed: false, owner: 'local_owner',
-      job: { id: IDS.session_harvest, name: NAMES.session_harvest, schedule: SCHEDULES.session_harvest },
-      plan_digest: 'd'.repeat(64) },
+    owner: { ok: true, active: true, ready: true, owner: 'local_owner', plan_digest: 'd'.repeat(64) },
     harvest: { ok: true, agents: ADAPTERS.map(a => ({ id: a.id,
       enabled: !(a.id === 'claude' && c.lineOff), found: !missingIds(c).includes(a.id),
       cursor: missingIds(c).includes(a.id) ? 'none (first run looks back 3 days)' : healthStamp(isoIn(-90)) })),
-      ...lastRunOf(c) },
+      ...lastNightOf(c) },
     jobs: jobsPayload(c),
     candidates: c.drafts ? candidates().slice(0, c.drafts) : [],
     unreadable: c.unreadableDraft && c.drafts ? candidates()[0].ref : null,
@@ -412,30 +410,34 @@ export const STATES = {
     expect: { alert: 'good', lines: { codex: 'missing', claude: 'missing' }, stations: ALL_OK,
       notText: ['lines closed', 'still run'] } },
   'branches-missing-old': { conditions: { missingFolder: ['codex', 'claude'], oldEngine: true },
-    expect: { alert: 'job-broken', tone: 'bad', lines: { codex: 'missing', claude: 'missing' }, stations: { harvest: 'bad' },
-      text: ['Codex and Claude Code lines closed: folders not found', 'This engine stops every line',
-        'stopped: a line folder is missing'], notText: ['still run'] } },
+    // An engine older than the night status still feeds the lines; Wiki Harvest skips a missing folder.
+    expect: { alert: 'good', lines: { codex: 'missing', claude: 'missing' }, stations: ALL_OK,
+      notText: ['lines closed', 'stops every line'] } },
   'line-missing': { conditions: { missingFolder: true }, open: 'line:claude',
     expect: { detail: 'line:claude', text: ['Claude Code folder', 'not found',
       'On — skipped while the folder is missing; the other lines are read'],
       notText: ['Wiki folder', 'On — collected', 'does not prove', 'nothing collected'] } },
   'line-missing-old': { conditions: { missingFolder: true, oldEngine: true }, open: 'line:claude',
-    expect: { detail: 'line:claude', text: ['On — nothing collected while the folder is missing'],
-      notText: ['the other lines are read'] } },
+    expect: { detail: 'line:claude', text: ['On — skipped while the folder is missing; the other lines are read'],
+      notText: ['Last night'] } },
+  'line-night': { conditions: {}, open: 'line:hermes',
+    expect: { detail: 'line:hermes', text: ['Last night', '2 conversation(s)'] } },
   'line-unread': { conditions: { unreadable: 'antigravity' },
     expect: { alert: 'job-broken', tone: 'warn', stations: { harvest: 'ok' },
       lines: { hermes: 'ok', codex: 'ok', claude: 'ok', antigravity: 'unread' },
       text: ['Antigravity line could not be read', 'the other three lines were read', 'could not be read'] } },
   'line-unread-detail': { conditions: { unreadable: 'antigravity' }, open: 'line:antigravity',
     expect: { bar: 0, detail: 'line:antigravity', text: ['On — its history could not be read, so its conversations wait'] } },
-  'harvest-unfinished': { conditions: { notCommitted: true },
-    // The cron store says the run completed; the engine says nothing was saved. The engine wins.
-    expect: { alert: 'harvest-failed', tone: 'bad', stations: { harvest: 'bad' },
-      text: ['No drafts were written. Reason: The engine did not finish this run; its conversations wait for the next run.'] } },
-  'harvest-stop-reason': { conditions: { notCommitted: true, stopReason: '2 of 7 captured inputs were not read completely, first: conversations/b.md.' },
-    // The engine recorded why the run stopped; the owner sees that reason, not the generic sentence.
-    expect: { alert: 'harvest-failed', tone: 'bad', stations: { harvest: 'bad' },
-      text: ['Reason: 2 of 7 captured inputs were not read completely'], notText: ['its conversations wait for the next run'] } },
+  'harvest-night': { conditions: {}, open: 'harvest',
+    expect: { detail: 'harvest', text: ['Last night', '2 drafts · everything waiting was read', "about $0.42 (Hermes' estimate)"] } },
+  'harvest-limit': { conditions: { stopReason: 'time limit reached; the rest waits for the next night', nightDrafts: 14 },
+    open: 'harvest',
+    // A night that stops at its limit is not a failure: the rest waits in the ledger for the next night.
+    expect: { alert: 'good', detail: 'harvest', stations: ALL_OK,
+      text: ['14 drafts · stopped: time limit reached; the rest waits for the next night'], notText: ['failed'] } },
+  'harvest-stale-night': { conditions: { staleNight: true, costUsd: 0.95 }, open: 'harvest',
+    // A night record from an earlier run never lends its drafts or cost to the newest run.
+    expect: { detail: 'harvest', notText: ['Last night', '$0.95'] } },
   'harvest-cost': { conditions: { costUsd: 0.95 }, open: 'harvest',
     expect: { detail: 'harvest', text: ["about $0.95 (Hermes' estimate)"] } },
   'harvest-lines': { conditions: { missingFolder: ['codex', 'claude'] }, open: 'harvest',

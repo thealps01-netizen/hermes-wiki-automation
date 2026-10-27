@@ -36,17 +36,17 @@ and creates new jobs paused. It does not configure content-owner authority or ac
 
 An engine installed earlier with `install.py` shows as an existing, not-yet-verified installation.
 Use **Preview update**: the plan keeps its data folder and lists each job as adopted in place
-(script jobs keep schedule and on/off state; the drafting job is paused) or new and paused.
+(script jobs keep schedule and on/off state) or new and paused. A job of a retired role (Wiki
+Session Harvest, replaced by Wiki Harvest) that the installation created is listed for removal.
 A customized job is refused at preview. Nothing changes until you confirm that plan.
 
 ## Owner approval
 
 Approving a candidate needs an owner bound to this profile. Open **Wiki Automation → Folio**:
 while no owner is bound it shows **Owner approval is off** with what turning it on changes. Click
-**Turn on owner approval**, then **Confirm and turn on**, and restart Hermes once. The owner is
+**Turn on owner approval**, then **Confirm and turn on**; no restart is needed. The owner is
 this computer's Hermes session (or the signed-in account when the dashboard requires sign-in);
-it is never taken from the request. After a plugin update the card asks once more, because the
-approval pins the loaded code. Then resume the drafting job (Session Harvest) in Nexus.
+it is never taken from the request. An owner turned on before 2.13.3 stays on after the update.
 
 After an approved interruption, the same verified administrator may open the original unfinished
 operation, review its original plan in the new application session and explicitly confirm the

@@ -165,15 +165,12 @@ class OwnerBrokerTests(unittest.TestCase):
             (home / 'config.yaml').write_text('{}')
             token = set_hermes_home_override(home)
             try:
-                seen, applied, engine = [], [], []
+                seen, engine = [], []
                 digest = ['f' * 64]
                 class Setup:
                     def plan(self, binding):
                         seen.append(binding)
-                        return {'ok': True, 'active': False, 'ready': False, 'plan_digest': digest[0],
-                                'loaded_code_hash': 'c' * 64}
-                    def apply(self, plan):
-                        applied.append(plan['plan_digest'])
+                        return {'ok': True, 'active': False, 'ready': False, 'plan_digest': digest[0]}
                 def run(operation, payload):
                     engine.append((operation, payload))
                     return {'ok': True, 'activated': True}
@@ -194,24 +191,22 @@ class OwnerBrokerTests(unittest.TestCase):
                     digest[0] = 'a' * 64
                     stale = client.post('/owner/activation', headers=headers, json={'confirm': True, 'plan_digest': 'f' * 64})
                     self.assertFalse(stale.json()['ok'])
-                    self.assertEqual(applied, [], 'A changed setup was applied without a fresh review')
+                    self.assertEqual(engine, [], 'A changed setup was applied without a fresh review')
                     done = client.post('/owner/activation', headers=headers, json={'confirm': True, 'plan_digest': 'a' * 64})
-                    self.assertEqual(done.json(), {'ok': True, 'restart_required': True})
-                    self.assertEqual(applied, ['a' * 64])
-                    self.assertEqual(engine, [('activate', {'binding': {'mode': 'local_owner', 'home': str(home.resolve())},
-                                                            'loaded_code_hash': 'c' * 64})])
+                    # No restart: turning owner approval on writes only the engine's own settings.
+                    self.assertEqual(done.json(), {'ok': True, 'activated': True})
+                    self.assertEqual(engine, [('activate', {'binding': {'mode': 'local_owner', 'home': str(home.resolve())}})])
                     refused = {'ok': False, 'reason': 'Engine settings belong to another profile'}
-                    with patch.object(Setup, 'apply', side_effect=AssertionError('host settings written after a refusal')):
-                        app.router.routes.clear()
-                        app.include_router(broker.make_router(lambda *a: refused, lambda: True, lambda: None,
-                                                              activation=Setup()), prefix='/owner')
-                        self.assertEqual(client.post('/owner/activation', headers=headers,
-                            json={'confirm': True, 'plan_digest': 'a' * 64}).json(), refused)
-                        app.router.routes.clear()
-                        app.include_router(broker.make_router(lambda *a: {'ok': True, 'activated': True, 'secret': 'x'},
-                            lambda: True, lambda: None, activation=Setup()), prefix='/owner')
-                        self.assertFalse(client.post('/owner/activation', headers=headers,
-                            json={'confirm': True, 'plan_digest': 'a' * 64}).json()['ok'])
+                    app.router.routes.clear()
+                    app.include_router(broker.make_router(lambda *a: refused, lambda: True, lambda: None,
+                                                          activation=Setup()), prefix='/owner')
+                    self.assertEqual(client.post('/owner/activation', headers=headers,
+                        json={'confirm': True, 'plan_digest': 'a' * 64}).json(), refused)
+                    app.router.routes.clear()
+                    app.include_router(broker.make_router(lambda *a: {'ok': True, 'activated': True, 'secret': 'x'},
+                        lambda: True, lambda: None, activation=Setup()), prefix='/owner')
+                    self.assertFalse(client.post('/owner/activation', headers=headers,
+                        json={'confirm': True, 'plan_digest': 'a' * 64}).json()['ok'])
                     from cron.execution_identity import enter_cron_execution, exit_cron_execution
                     cron = enter_cron_execution({'id': 'fixture-draft-job'}, 'fixture-execution', {})
                     try:
@@ -219,7 +214,7 @@ class OwnerBrokerTests(unittest.TestCase):
                             json={'confirm': True, 'plan_digest': 'a' * 64}).status_code, 403)
                     finally:
                         exit_cron_execution(cron)
-                    self.assertEqual(len(applied), 1)
+                    self.assertEqual(len(engine), 1)
                 remote = FastAPI()
                 remote.state.auth_required = True
                 @remote.middleware('http')

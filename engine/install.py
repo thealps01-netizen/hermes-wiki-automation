@@ -64,16 +64,13 @@ LAUNCHER_DIR = AUDIT / "launchers"
 # `hermes-wiki-watchdog` repo keeps its history).
 PANELS = json.loads((AUDIT / "panels.json").read_text(encoding="utf-8"))["panels"]
 # Jobs come from ONE definition in this package (jobs.json); panels read the same file.
-_JOB_DEFS = json.loads((AUDIT / "jobs.json").read_text(encoding="utf-8"))["jobs"]
+_JOB_DOCUMENT = json.loads((AUDIT / "jobs.json").read_text(encoding="utf-8"))
+_JOB_DEFS = _JOB_DOCUMENT["jobs"]
+_RETIRED = _JOB_DOCUMENT.get("retired") or {}
 LAUNCHERS = tuple(j["launcher"] for j in _JOB_DEFS.values())
 # Script jobs. The name is the one already shown in the user's Jobs list ("Watch Dog"); a rename on
 # migration would split the run history in two.
 JOBS = tuple((k, j["name"], j["launcher"]) for k, j in _JOB_DEFS.items() if j["kind"] == "script")
-# AGENT JOBS: a pre-run script gathers the input and gates the run ({"wakeAgent": false} = no model
-# cost); the prompt file in this package is the agent's whole instruction. Created PAUSED on a new
-# PC: the owner turns it on after checking it.
-AGENT_JOBS = tuple((k, j["name"], j["launcher"], j["prompt_file"])
-                   for k, j in _JOB_DEFS.items() if j["kind"] == "agent")
 
 report: list[tuple[str, str]] = []
 
@@ -237,7 +234,11 @@ def install_wiki_hooks(root: Path, dry: bool) -> None:
 
 
 def sync_jobs(cfg: dict, hermes_home: Path, dry: bool) -> dict:
-    """Üç zamanlanmış işi kur/tazele. Var olan iş güncellenir (kopya üretilmez)."""
+    """Üç zamanlanmış işi kur/tazele. Var olan iş güncellenir (kopya üretilmez).
+
+    A job of a retired role is removed under the same rule as the panel's installation
+    (`_retired_jobs`): only the job the settings map to that role, still in the shape an
+    installation gave it. Its mapping is dropped unless the removal failed."""
     ids = dict(cfg.get("jobs") or {})
     schedule = cfg.get("schedule") or {}
     deliver = cfg.get("deliver") or "local"
@@ -270,50 +271,23 @@ def sync_jobs(cfg: dict, hermes_home: Path, dry: bool) -> dict:
                 continue
             ids[key] = created.get("id")
             note(True, f"iş kuruldu: {name} ({sched})")
+    kept = set()
+    for role, job_id in _retired_jobs({"jobs": ids}, read_jobs(hermes_home), _RETIRED).items():
+        name = _RETIRED[role]["name"]
+        if dry:
+            note(True, f"retired job will be removed: {name} ({job_id})")
+            continue
+        code, out = hermes_cli(["cron", "remove", str(job_id)])
+        if code != 0:
+            kept.add(role)
+            note(False, f"retired job could not be removed: {name} ({out.strip()[:120]})")
+            continue
+        note(True, f"retired job removed: {name} ({job_id})")
+    if not dry:
+        ids = {role: job_id for role, job_id in ids.items() if role not in _RETIRED or role in kept}
     if not dry and ids != (cfg.get("jobs") or {}):
         wikiconfig.save({"jobs": ids})
     return ids
-
-
-def agent_prompt(prompt_file: str) -> str:
-    """The job prompt: the package's instruction file with this PC's folders filled in, so the
-    stored prompt never carries another machine's paths."""
-    text = (AUDIT / prompt_file).read_text(encoding="utf-8")
-    cfg = wikiconfig.load()
-    header = (f"Automation folder: {AUDIT}\nWiki root: {wikiconfig.project_root(cfg)}\n"
-              f"Python for the scripts: {sys.executable}\nThe run folder is in the job context "
-              f"(`run_dir`).\n\n")
-    return header + text
-
-
-def sync_agent_jobs(cfg: dict, hermes_home: Path, dry: bool) -> None:
-    schedule = cfg.get("schedule") or {}
-    deliver = cfg.get("deliver") or "local"
-    ids = dict(cfg.get("jobs") or {})
-    for key, name, script, prompt_file in AGENT_JOBS:
-        sched = schedule.get(key) or _JOB_DEFS[key].get("default_schedule")
-        prompt = agent_prompt(prompt_file)
-        existing = job_by_name(hermes_home, name)
-        if dry:
-            note(True, f"ajan işi {'güncellenecek' if existing else 'kurulacak (duraklatılmış)'}: {name} ({sched})")
-            continue
-        if existing:
-            code, out = hermes_cli(["cron", "edit", str(existing.get("id")), "--schedule", sched,
-                                    "--script", script, "--prompt", prompt, "--deliver", deliver])
-            ok = code == 0
-            ids[key] = existing.get("id")
-            note(ok, f"ajan işi güncellendi: {name} ({sched})" + ("" if ok else f" ({out.strip()[:120]})"))
-        else:
-            code, out = hermes_cli(["cron", "create", sched, prompt, "--name", name, "--script", script,
-                                    "--deliver", deliver, "--paused",
-                                    "--paused-reason", "new install: turn on after checking the first run"])
-            created = job_by_name(hermes_home, name)
-            ok = code == 0 and created is not None
-            if created:
-                ids[key] = created.get("id")
-            note(ok, f"ajan işi kuruldu (duraklatılmış): {name} ({sched})" + ("" if ok else f" ({out.strip()[:120]})"))
-    if not dry and ids != (cfg.get("jobs") or {}):
-        wikiconfig.save({"jobs": ids})
 
 
 def verify(cfg: dict, hermes_home: Path, dry: bool) -> bool:
@@ -499,9 +473,11 @@ def build_plan(cfg: dict, hermes_home: Path, code_root: Path, data_root: Path) -
         settings['install_options'] = dict(cfg['install_options'])
     settings.update(project_root=info['path'], project_id=info['id'], hermes_home=str(home),
         engine_dir=str(code), audit_dir=str(data))
-    definitions = json.loads(checked_path(code, 'jobs.json').read_bytes())['jobs']
-    if not isinstance(definitions, dict):
-        raise wikiconfig.ConfigError('Engine job definitions are malformed')
+    job_document = json.loads(checked_path(code, 'jobs.json').read_bytes())
+    definitions, retired = job_document['jobs'], job_document.get('retired') or {}
+    if (not isinstance(definitions, dict) or not isinstance(retired, dict) or set(retired) & set(definitions)
+            or any(not isinstance(spec, dict) or spec.get('kind') != 'script' for spec in definitions.values())):
+        raise wikiconfig.ConfigError('Engine job definitions are malformed; every job is a script job')
     payloads = launcher_payloads(code, definitions)
     launcher_before = {}
     old_location = captured['location'] or {}
@@ -533,6 +509,11 @@ def build_plan(cfg: dict, hermes_home: Path, code_root: Path, data_root: Path) -
     if refresh:
         plan['job_refresh'] = refresh
     if (settings.get('install_options') or {}).get('no_cron') is False:
+        retire = _retired_jobs(settings, records, retired)
+        if retire:
+            plan['job_retire'] = retire
+        if isinstance(settings.get('jobs'), dict):
+            settings['jobs'] = {role: job_id for role, job_id in settings['jobs'].items() if role not in retired}
         # Refuse at preview, before anything is journaled: every mapped job that is kept must
         # already be this engine's verified role, otherwise apply could only strand it.
         for role in definitions:
@@ -543,6 +524,53 @@ def build_plan(cfg: dict, hermes_home: Path, code_root: Path, data_root: Path) -
     return plan
 
 
+def _retired_jobs(settings: dict, records: list, retired: dict) -> dict:
+    """Jobs of retired roles this installation removes, by role: {role: job_id}.
+
+    Only a job the engine settings map to that role and that still carries the shape an
+    installation gave it qualifies (its own origin, or the pre-panel installer's exact name and
+    launcher with no origin). A mapped ID that no longer exists needs no removal; a same-name job
+    that is not mapped, or one the owner changed into something else, is left alone."""
+    mapping, retire = settings.get('jobs') or {}, {}
+    for role, spec in retired.items():
+        job = next((row for row in records if row['id'] == mapping.get(role)), None)
+        if job is None or job.get('name') != spec.get('name'):
+            continue
+        origin = job.get('origin')
+        if _owned(job, role) or (origin is None and job.get('script') == spec.get('launcher')):
+            retire[role] = job['id']
+    return retire
+
+
+def _without_runtime(row: dict | None) -> dict | None:
+    if row is None:
+        return None
+    kept = {key: value for key, value in row.items() if key not in _RUNTIME_FIELDS}
+    if isinstance(kept.get('repeat'), dict):
+        kept['repeat'] = {key: value for key, value in kept['repeat'].items() if key != 'completed'}
+    return kept
+
+
+def retire_jobs(plan: dict, store) -> None:
+    """Remove the previewed jobs of retired roles. A job already gone is done; a job changed since
+    the preview (beyond scheduler run bookkeeping) is the owner's and stops the installation."""
+    from cron.jobs import remove_job
+    from candidate_apply import _checkpoint
+    home = Path(plan['hermes_home'])
+    for role, job_id in (plan.get('job_retire') or {}).items():
+        job = next((row for row in existing_job_snapshot(home)['jobs'] if row['id'] == job_id), None)
+        if job is not None:
+            captured = next((row for row in plan['existing_jobs'] if row['id'] == job_id), None)
+            if _without_runtime(job) != _without_runtime(captured):
+                raise wikiconfig.ConfigError('Retired job changed after preview; owner record was preserved')
+            if not remove_job(job_id):
+                raise wikiconfig.ConfigError('Retired job could not be removed; nothing else was changed for it')
+            _checkpoint('after-retire-job:' + role)
+        if any(row['id'] == job_id for row in existing_job_snapshot(home)['jobs']):
+            raise wikiconfig.ConfigError('Retired job is still listed after removal')
+        store.record_step(plan['digest'], 'retire-' + role, {'job_id': job_id})
+
+
 # Fields the pre-panel install.py never set when it created jobs through `hermes cron create`.
 _LEGACY_UNSET = ('origin', 'workdir', 'interpreter', 'skill', 'model', 'provider', 'base_url',
     'monitor_script', 'monitor_url', 'context_from')
@@ -550,7 +578,6 @@ _LEGACY_UNSET = ('origin', 'workdir', 'interpreter', 'skill', 'model', 'provider
 _RUNTIME_FIELDS = ('last_run_at', 'next_run_at', 'last_status', 'last_error', 'last_delivery_error',
     'last_delivery_unverified', 'last_dispatch', 'failure_streak', 'fire_claim', 'monitor_state',
     'pending_slot', 'quota_hold_until', 'last_failure', 'last_fire_error', 'preflight_alerted')
-LEGACY_AGENT_PAUSED_REASON = 'Adopted from the earlier installer; owner activation required.'
 
 
 def _legacy_adoptions(old_location: dict, settings: dict, records: list, definitions: dict) -> dict:
@@ -565,9 +592,8 @@ def _legacy_adoptions(old_location: dict, settings: dict, records: list, definit
     adoptions = {}
     for role, spec in definitions.items():
         job = next((row for row in records if row['id'] == mapping.get(role)), None)
-        agent = spec['kind'] == 'agent'
         if (job is not None and job.get('name') == spec['name'] and job.get('script') == spec['launcher']
-                and job.get('no_agent') is (not agent) and job.get('deliver') == deliver
+                and job.get('no_agent') is True and job.get('deliver') == deliver
                 and isinstance(job.get('repeat'), dict) and job['repeat'].get('times') is None
                 and all(job.get(key) is None for key in _LEGACY_UNSET)
                 and not job.get('enabled_toolsets') and not job.get('skills')):
@@ -576,18 +602,10 @@ def _legacy_adoptions(old_location: dict, settings: dict, records: list, definit
 
 
 def legacy_adoption_updates(role: str, plan: dict) -> dict:
-    """The only fields adoption writes. Script jobs keep schedule, on/off state and history; the
-    drafting job keeps its ID, schedule and history but gets the new prompt and tools and is paused."""
-    from workflow_paths import checked_path
-    spec = plan['job_definitions'][role]
-    updates = {'workdir': plan['settings']['project_root'],
-        'origin': {'engine_installation': plan['digest'], 'engine_role': role}}
-    if spec['kind'] != 'agent':
-        return {**updates, 'interpreter': plan['installer_interpreter']}
-    prompt = checked_path(unlinked_path(plan['engine_dir']), spec['prompt_file']).read_text(encoding='utf-8').strip()
-    # next_run_at is cleared so turning the job on later schedules the next slot instead of a catch-up run.
-    return {**updates, 'script': None, 'prompt': prompt, 'enabled_toolsets': ['wiki_draft', 'no_mcp'],
-        'enabled': False, 'state': 'paused', 'paused_reason': LEGACY_AGENT_PAUSED_REASON, 'next_run_at': None}
+    """The only fields adoption writes. Script jobs keep schedule, on/off state and history."""
+    return {'workdir': plan['settings']['project_root'],
+        'origin': {'engine_installation': plan['digest'], 'engine_role': role},
+        'interpreter': plan['installer_interpreter']}
 
 
 def _legacy_adoption_state(job: dict, captured: dict | None, updates: dict) -> str | None:
@@ -610,14 +628,6 @@ def _legacy_adoption_state(job: dict, captured: dict | None, updates: dict) -> s
 def _sha_text(value) -> str:
     import hashlib
     return hashlib.sha256(str(value or '').encode('utf-8')).hexdigest()
-
-
-def _prompt_text(code_dir, prompt_file: str) -> str | None:
-    from workflow_paths import checked_path
-    try:
-        return checked_path(unlinked_path(code_dir), prompt_file).read_text(encoding='utf-8').strip()
-    except (OSError, ValueError, wikiconfig.ConfigError):
-        return None
 
 
 def _same_path(a, b) -> bool:
@@ -666,20 +676,11 @@ def _job_refresh(old_location: dict, settings: dict, records: list, definitions:
 
     Only this engine's own job (origin) with its exact role shape qualifies, and only when the old
     value is what an earlier installation wrote. Schedule, on/off state and history never change."""
-    previous_code = old_location.get('engine_dir') if 'schema' in old_location else None
     mapping, recorded = settings.get('jobs') or {}, None
     refresh = {}
     for role, spec in definitions.items():
         job = next((row for row in records if row['id'] == mapping.get(role)), None)
         if job is None or not _owned(job, role) or job.get('name') != spec['name']:
-            continue
-        if spec.get('kind') == 'agent':
-            old = _prompt_text(previous_code, spec['prompt_file']) if isinstance(previous_code, str) and previous_code else None
-            new = _prompt_text(code, spec['prompt_file'])
-            if (old is not None and new is not None and old != new and job.get('prompt') == old
-                    and job.get('script') is None and job.get('no_agent') is False and job.get('interpreter') is None
-                    and set(job.get('enabled_toolsets') or []) == {'wiki_draft', 'no_mcp'}):
-                refresh[role] = {'job_id': job['id'], 'field': 'prompt', 'from_sha256': _sha_text(old)}
             continue
         current = job.get('interpreter')
         if (not isinstance(current, str) or not current or _same_path(current, interpreter)
@@ -693,9 +694,6 @@ def _job_refresh(old_location: dict, settings: dict, records: list, definitions:
 
 
 def _refresh_value(role: str, plan: dict):
-    entry = (plan.get('job_refresh') or {})[role]
-    if entry['field'] == 'prompt':
-        return _prompt_text(plan['engine_dir'], plan['job_definitions'][role]['prompt_file'])
     return plan['installer_interpreter']
 
 
@@ -736,12 +734,9 @@ class PlanStale(wikiconfig.ConfigError):
 
 def verify_job_role(job: dict, role: str, plan: dict) -> None:
     import re
-    from workflow_paths import checked_path
     spec = plan['job_definitions'][role]
-    agent = spec['kind'] == 'agent'
     if (not isinstance(job, dict) or job.get('name') != spec['name']
-            or job.get('no_agent') is not (not agent)
-            or job.get('script') != (None if agent else spec['launcher'])
+            or job.get('no_agent') is not True or job.get('script') != spec['launcher']
             or job.get('workdir') != plan['settings']['project_root']):
         raise wikiconfig.ConfigError('Mapped job is not the selected engine role; owner work was preserved')
     captured = next((row for row in plan['existing_jobs'] if row['id'] == job['id']), None)
@@ -751,29 +746,20 @@ def verify_job_role(job: dict, role: str, plan: dict) -> None:
             or origin.get('engine_role') != role or not isinstance(origin.get('engine_installation'), str)
             or not re.fullmatch('[0-9a-f]{64}', origin['engine_installation']) or job.get('origin') != origin):
         raise wikiconfig.ConfigError('Native engine job origin changed or lacks original ownership')
-    if agent:
-        prompt = checked_path(unlinked_path(plan['engine_dir']), spec['prompt_file']).read_text(encoding='utf-8').strip()
-        if (set(job.get('enabled_toolsets') or []) != {'wiki_draft', 'no_mcp'}
-                or (job.get('prompt') != prompt and not _refresh_allows(job, role, plan, 'prompt'))
-                or job.get('interpreter') is not None):
-            raise wikiconfig.ConfigError('Legacy or customized drafting job requires a separate reviewed migration')
-    else:
-        expected = unlinked_path(plan.get('installer_interpreter') or sys.executable)
-        selected = job.get('interpreter')
-        if (not isinstance(selected, str) or not selected
-                or (unlinked_path(selected).resolve() != expected.resolve()
-                    and not _refresh_allows(job, role, plan, 'interpreter'))
-                or job.get('enabled_toolsets') or job.get('skills')):
-            raise wikiconfig.ConfigError('Native script interpreter or execution role changed; no repair attempted')
+    expected = unlinked_path(plan.get('installer_interpreter') or sys.executable)
+    selected = job.get('interpreter')
+    if (not isinstance(selected, str) or not selected
+            or (unlinked_path(selected).resolve() != expected.resolve()
+                and not _refresh_allows(job, role, plan, 'interpreter'))
+            or job.get('enabled_toolsets') or job.get('skills')):
+        raise wikiconfig.ConfigError('Native script interpreter or execution role changed; no repair attempted')
 
 
 def _verify_new_installation_job(job, role, plan, recorded=None):
     """New paused records must still describe the exact engine-created operation."""
     from cron.jobs import parse_schedule
-    from workflow_paths import checked_path
     spec = plan['job_definitions'][role]
-    prompt = (checked_path(unlinked_path(plan['engine_dir']), spec['prompt_file']).read_text(encoding='utf-8').strip()
-        if spec['kind'] == 'agent' else spec['description'].strip())
+    prompt = spec['description'].strip()
     schedule = parse_schedule((plan['settings'].get('schedule') or {}).get(role) or spec['default_schedule'])
     expected = {'prompt': prompt, 'schedule': schedule, 'repeat': {'times': None, 'completed': 0},
         'enabled': False, 'state': 'paused', 'deliver': plan['settings'].get('deliver') or 'local',
@@ -794,6 +780,7 @@ def register_paused_jobs(plan: dict, store) -> dict:
     token = set_hermes_home_override(home)
     try:
         with use_cron_store(home):
+            retire_jobs(plan, store)
             def captured_row(job_id):
                 return next((row for row in plan['existing_jobs'] if row['id'] == job_id), None)
             for role in plan['job_definitions']:
@@ -836,16 +823,13 @@ def register_paused_jobs(plan: dict, store) -> dict:
                 else:
                     if any(row.get('name') == spec['name'] for row in rows):
                         raise wikiconfig.ConfigError('Same-name job has no verified installation ownership; it was preserved')
-                    agent = spec['kind'] == 'agent'
-                    prompt = (Path(plan['engine_dir']) / spec['prompt_file']).read_text(encoding='utf-8') if agent else spec['description']
-                    job = create_job(prompt=prompt,
+                    job = create_job(prompt=spec['description'],
                         schedule=(plan['settings'].get('schedule') or {}).get(role) or spec['default_schedule'],
                         name=spec['name'], repeat=None, deliver=plan['settings'].get('deliver') or 'local',
-                        origin=marker, script=None if agent else spec['launcher'], no_agent=not agent,
-                        enabled_toolsets=['wiki_draft', 'no_mcp'] if agent else [],
+                        origin=marker, script=spec['launcher'], no_agent=True, enabled_toolsets=[],
                         workdir=plan['settings']['project_root'], paused=True,
                         paused_reason='Created by the verified engine installer; owner activation required.',
-                        interpreter=None if agent else sys.executable)
+                        interpreter=sys.executable)
                     _checkpoint('after-create-job:' + role)
                 verify_job_role(job, role, plan)
                 saved = next((row for row in existing_job_snapshot(home)['jobs'] if row['id'] == job['id']), None)
@@ -1200,7 +1184,6 @@ def main(argv: list[str]) -> int:
         note(True, "cron adımı atlandı (--no-cron)")
     else:
         sync_jobs(cfg, hermes_home, args.dry_run)
-        sync_agent_jobs(wikiconfig.load(), hermes_home, args.dry_run)
 
     # Watch Dog runs only as a Hermes cron job: Hermes runs a missed job once it is back up
     # (`cron.catch_up_missed`), so the Windows Task Scheduler twin and its popup were dropped.

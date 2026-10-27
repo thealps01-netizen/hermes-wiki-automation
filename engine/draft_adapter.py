@@ -1,19 +1,20 @@
-"""Constrained, data-only drafting facade shared by the host integration.
+"""The checks every wiki draft passes before it is stored, and its immutable storage.
 
-Execution identity is provided by the host, never by model tool arguments.
-Run collection must persist that identity before drafting is enabled.
+Wiki Harvest's merger (`harvest_merge.py`) and the source cleanup (`source_cleanup.py`) store their
+drafts through `check_draft` then `store_draft`, so Review shows only drafts approval would accept.
+The constrained read/submit facade of the retired Wiki Session Harvest agent job was removed in 2.13.3.
 """
 from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
 
-from workflow_paths import PathRefused, checked_path, identifier
+from workflow_paths import PathRefused, checked_path
 from wiki_candidates import NAME_RE, check_format, content_refusals, validate_evidence_bindings, validate_source_citations, Refused
 import evidence_store
 import evidence_requests
 
-RETAINED_ONLY = ('Evidence citations through this adapter are limited to an update keeping evidence its exact '
+RETAINED_ONLY = ('Evidence citations in a draft are limited to an update keeping evidence its exact '
                  'current target already cites, each with a retained manifest, and to new ids named by an '
                  'evidence request in evidence_requests')
 
@@ -22,60 +23,9 @@ class DraftRefused(RuntimeError):
     pass
 
 
-class DraftAdapter:
-    def __init__(self, wiki: Path, inbox: Path, run_id: str, execution_id: str, job_id: str):
-        self.wiki, self.inbox = Path(wiki), Path(inbox)
-        try:
-            self.run_id = identifier(run_id)
-            self.run = checked_path(inbox, self.run_id)
-            manifest_path = checked_path(inbox, f'{self.run_id}/run.json')
-            self.manifest = json.loads(manifest_path.read_bytes())
-            project_path = checked_path(wiki, '.llm-wiki/project.json')
-            project_id = json.loads(project_path.read_bytes())['id']
-        except (PathRefused, OSError, ValueError, KeyError) as exc:
-            raise DraftRefused('Unreadable or unsafe bound run') from exc
-        if not execution_id or not job_id or self.manifest.get('execution_id') != execution_id or self.manifest.get('job_id') != job_id:
-            raise DraftRefused('Run is not bound to the current host execution')
-        if self.manifest.get('project_id') != project_id:
-            raise DraftRefused('Run belongs to a different project')
-
-    def read(self, path: str, offset: int = 0, limit: int = 20000) -> dict:
-        try:
-            if path.startswith('source:'):
-                name = path[len('source:'):]
-                if not NAME_RE.fullmatch(name):
-                    raise PathRefused('Invalid source name')
-                file = checked_path(self.wiki, f'raw/sources/{name}')
-            elif path in ('run.json', 'sources-index.md') or (path.startswith('conversations/') and path.endswith('.md')):
-                file = checked_path(self.inbox, f'{self.run_id}/{path}')
-            else:
-                raise PathRefused('Input is outside the drafting allowlist')
-            if file.stat().st_size > 2 * 1024 * 1024:
-                raise DraftRefused('Input exceeds the two-megabyte limit')
-            data = file.read_bytes()
-            text = data.decode('utf-8')
-            if type(offset) is not int or type(limit) is not int or offset < 0 or not 1 <= limit <= 20000:
-                raise DraftRefused('Invalid text range')
-            end = min(offset + limit, len(text))
-            return dict(text=text[offset:end], sha256=hashlib.sha256(data).hexdigest(),
-                        truncated=end < len(text), next_offset=end if end < len(text) else None,
-                        total_characters=len(text))
-        except (PathRefused, OSError, UnicodeError) as exc:
-            raise DraftRefused(str(exc)) from exc
-
-    def submit(self, name: str, metadata: dict, source: str | None) -> str:
-        try:
-            identifier(name)
-            base_bytes = check_draft(self.wiki, checked_path(self.run, 'candidates'), metadata, source)
-            store_draft(checked_path(self.inbox, f'{self.run_id}/candidates/{name}'), metadata, source, base_bytes)
-            return f'{self.run_id}/{name}'
-        except (PathRefused, OSError, ValueError) as exc:
-            raise DraftRefused(str(exc)) from exc
-
-
 def check_draft(wiki: Path, candidates: Path, metadata: dict, source: str | None) -> bytes | None:
-    """Every check a draft must pass before it is stored, wherever it comes from (the constrained
-    drafting job or the per-conversation merger). Returns the current target's bytes (None for new).
+    """Every check a draft must pass before it is stored, wherever it comes from (the merger or
+    the source cleanup). Returns the current target's bytes (None for new).
     `candidates` is the folder whose evidence copies a retained citation may be bound to."""
     try:
         allowed = {'kind', 'target', 'summary', 'why', 'evidence_ids', 'base_sha256', 'evidence_requests'}
@@ -161,43 +111,3 @@ def _retained_only(wiki: Path, candidates: Path, metadata: dict, base_bytes: byt
         validate_evidence_bindings(wiki, candidates, ids)
     except (Refused, PathRefused) as exc:
         raise DraftRefused(f'{RETAINED_ONLY} ({exc})') from exc
-
-
-def main(argv=None) -> int:
-    import argparse
-    import sys
-    import wikiconfig
-    parser = argparse.ArgumentParser(description='Bounded data-only wiki drafting operations')
-    parser.add_argument('operation', choices=('read', 'submit'))
-    parser.add_argument('--execution-id', required=True)
-    parser.add_argument('--job-id', required=True)
-    parser.add_argument('--home', required=True)
-    parser.add_argument('--settings', required=True)
-    args = parser.parse_args(argv)
-    try:
-        config = json.loads(Path(args.settings).read_bytes())
-        if not config.get('hermes_home') or Path(config['hermes_home']).resolve() != Path(args.home).resolve():
-            raise DraftRefused('Engine settings are not owned by the current profile')
-        wiki = wikiconfig.project_root(config)
-        data = Path(config['audit_dir'])
-        request = json.loads(sys.stdin.buffer.read(300001))
-        if not isinstance(request, dict):
-            raise DraftRefused('Draft request must be an object')
-        expected = {'run_id', 'path', 'offset', 'limit'} if args.operation == 'read' else {'run_id', 'name', 'metadata', 'source'}
-        if set(request) - expected:
-            raise DraftRefused('Unsupported draft request fields')
-        adapter = DraftAdapter(wiki, data / 'inbox', request['run_id'], args.execution_id, args.job_id)
-        if args.operation == 'read':
-            result = adapter.read(request['path'], request.get('offset', 0), request.get('limit', 20000))
-        else:
-            result = {'ref': adapter.submit(request['name'], request['metadata'], request['source'])}
-        print(json.dumps(result, ensure_ascii=False))
-        return 0
-    except (DraftRefused, wikiconfig.ConfigError, OSError, ValueError, KeyError, TypeError) as exc:
-        print(json.dumps({'error': str(exc)}))
-        return 1
-
-
-if __name__ == '__main__':
-    raise SystemExit(main())
-

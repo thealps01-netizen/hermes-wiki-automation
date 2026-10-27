@@ -157,6 +157,107 @@ class Entry(unittest.TestCase):
         from unittest import mock
         with mock.patch('wikiconfig.load', side_effect=AssertionError('settings must not be read')):
             self.assertEqual(hn.main(['--now']), 1)
+            self.assertEqual(hn.main(['--status', '--now']), 1)
+
+
+class Record(unittest.TestCase):
+    """The night's record (night.json) and the read-only status the panel's Harvest card shows."""
+
+    def setUp(self):
+        from unittest import mock
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.audit, self.home = root / 'audit', root / 'home'
+        self.audit.mkdir()
+        for folder in ('hermes', '.codex/sessions', '.claude/projects'):
+            (self.home / folder).mkdir(parents=True)
+        self.cfg = {'harvest': {'agents': {'antigravity': False}}}
+        self.patches = [mock.patch('wikiconfig.audit_dir', return_value=self.audit),
+                        mock.patch('wikiconfig.hermes_home', return_value=self.home / 'hermes'),
+                        mock.patch('pathlib.Path.home', return_value=self.home),
+                        mock.patch.dict('os.environ', {'CODEX_HOME': '', 'CLAUDE_CONFIG_DIR': ''})]
+        for patch in self.patches:
+            patch.start()
+
+    def tearDown(self):
+        for patch in reversed(self.patches):
+            patch.stop()
+        self.tmp.cleanup()
+
+    def files(self):
+        return sorted(str(path.relative_to(self.audit)) for path in self.audit.rglob('*'))
+
+    def test_status_before_any_night_reads_the_packed_harvest_cursors_and_writes_nothing(self):
+        (self.audit / 'harvest-state.json').write_text(json.dumps({'cursors': {'hermes': 1000.0}}), encoding='utf-8')
+        before = self.files()
+        out = hn.status(self.cfg)
+        self.assertEqual(self.files(), before, 'status created a file (the ledger or a night folder)')
+        rows = {row['id']: row for row in out['agents']}
+        self.assertEqual(rows['hermes']['cursor'], hn.stamp(1000.0))
+        self.assertTrue(rows['codex']['cursor'].startswith('none (first run looks back'))
+        self.assertEqual((rows['antigravity']['enabled'], rows['codex']['found']), (False, True))
+        self.assertIsNone(out['last_night'])
+
+    def test_status_after_a_night_shows_the_ledger_point_and_the_newest_record(self):
+        with hl.Ledger(self.audit / 'harvest-ledger.sqlite') as ledger:
+            ledger.set_meta('collected_until', 5000.0)
+        (self.audit / 'harvest-state.json').write_text(json.dumps({'cursors': {'hermes': 1000.0}}), encoding='utf-8')
+        nights = self.audit / 'harvest-nights'
+        hn.write_record(nights, '20261026-213000-aaaaaaaaaaaa', {'ok': True, 'agents': {}}, 10.0, 20.0)
+        hn.write_record(nights, '20261027-213000-bbbbbbbbbbbb',
+                        {'ok': True, 'agents': {'codex': 'not found (sessions not found)'},
+                         'read': {'cost_usd': 1.25}, 'merge': {'cost_usd': 2.5, 'candidates': []},
+                         'stopped': 'time limit reached; the rest waits for the next night'}, 100.0, 2700.0)
+        (nights / '20261028-213000-cccccccccccc').mkdir()
+        before = self.files()
+        out = hn.status(self.cfg)
+        self.assertEqual(self.files(), before)
+        rows = {row['id']: row for row in out['agents']}
+        self.assertEqual({row['cursor'] for row in out['agents']}, {hn.stamp(5000.0)})
+        self.assertFalse(rows['codex']['found'], 'a source last night could not find counts as not found')
+        self.assertTrue(rows['claude']['found'])
+        night = out['last_night']
+        self.assertEqual(night['night'], '20261027-213000-bbbbbbbbbbbb', 'a folder without a record was taken')
+        self.assertEqual((night['cost_usd'], night['started'], night['finished']), (3.75, hn.stamp(100.0), hn.stamp(2700.0)))
+
+    def test_a_record_that_names_another_night_is_refused(self):
+        nights = self.audit / 'harvest-nights'
+        hn.write_record(nights, '20261027-213000-bbbbbbbbbbbb', {'ok': True}, 1.0, 2.0)
+        record = nights / '20261027-213000-bbbbbbbbbbbb' / hn.RECORD
+        record.write_text(json.dumps({'night': 'other'}), encoding='utf-8')
+        with self.assertRaises(ValueError):
+            hn.status(self.cfg)
+
+    def night_main(self, run_night):
+        from unittest import mock
+        import harvest_extract as hx
+        import harvest_pipeline as hp
+        with mock.patch('wikiconfig.load', return_value=self.cfg), \
+                mock.patch('wikiconfig.project_root', return_value=self.home / 'wiki'), \
+                mock.patch('shutil.which', return_value='hermes'), \
+                mock.patch.object(hx, 'hermes_caller', return_value=None), \
+                mock.patch.object(hp, 'owner_rules', return_value=[]), \
+                mock.patch.object(hp, 'found_conversations', return_value=iter([])), \
+                mock.patch.object(hn, 'run_night', side_effect=run_night):
+            code = hn.main([])
+        records = sorted((self.audit / 'harvest-nights').glob(f'*/{hn.RECORD}'))
+        self.assertEqual(len(records), 1)
+        return code, json.loads(records[0].read_bytes())
+
+    def test_a_finished_night_keeps_its_report_and_whole_cost(self):
+        code, record = self.night_main(lambda *a, **k: {
+            'read': {'cost_usd': 0.5}, 'merge': {'cost_usd': 1.0, 'candidates': [{}]}, 'stopped': None})
+        self.assertEqual(code, 0)
+        self.assertEqual((record['ok'], record['cost_usd']), (True, 1.5))
+        self.assertEqual(record['night'], record['night'].strip())
+        self.assertIn('ledger', record)
+
+    def test_a_night_that_failed_after_it_started_still_leaves_its_record(self):
+        def boom(*args, **kwargs):
+            raise hm.MergeError('merge reply unreadable')
+        code, record = self.night_main(boom)
+        self.assertEqual(code, 1)
+        self.assertEqual((record['ok'], record['error'], record['cost_usd']), (False, 'merge reply unreadable', 0.0))
 
 
 if __name__ == '__main__':

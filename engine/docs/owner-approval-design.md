@@ -31,9 +31,10 @@ The machine's other privileged programs/agents must not be represented as isolat
 
 ## Enforcement prerequisites
 
-- The host-bound drafting job exposes exactly `wiki_draft` plus `no_mcp` and loads the native veto.
-- Draft handlers permit only explicit bounded data reads and immutable inbox submission; they expose
-  no authority, terminal, general file, browser, UI control, RPC, REST or delegation capability.
+- No drafting job or model-facing draft tool exists (2.13.3; the Wiki Session Harvest agent job and its
+  `wiki_draft` toolset were retired). Script jobs store drafts through `draft_adapter.check_draft` and
+  `store_draft`; their model calls run `hermes chat --safe-mode -t todo`, so a model gets no authority,
+  terminal, general file, browser, UI control, RPC, REST or delegation capability.
 - Authority records and signing material are in the configured mutable data root, never inbox inputs,
   source files, release code, model context or responses. Initialization is an explicit installation/
   owner setup step, not a side effect of verifying an arbitrary receipt.

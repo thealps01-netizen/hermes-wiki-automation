@@ -8,7 +8,8 @@ collected again. Times are epoch seconds of the conversation's messages; `after`
 
 The merger takes items one by one (`merged_items`): a night stopped by its cap or clock keeps the
 items it did not reach for the next night, and never offers an item it already drafted again. A row
-is marked merged once every one of its items was taken. `meta` keeps the collector's last time.
+is marked merged once every one of its items was taken. `meta` keeps the collector's last time;
+`read_meta` reads it without opening the ledger for writing (status reports never create or migrate it).
 """
 import hashlib
 import json
@@ -31,6 +32,24 @@ class LedgerError(RuntimeError):
 
 def content_hash(parts):
     return hashlib.sha256(json.dumps(parts, ensure_ascii=False).encode('utf-8')).hexdigest()
+
+
+def read_meta(path, key):
+    """One `meta` value, read only: None when the ledger or the key does not exist yet."""
+    path = Path(path)
+    if not path.is_file():
+        return None
+    try:
+        db = sqlite3.connect(f'{path.resolve().as_uri()}?mode=ro', uri=True, timeout=10)
+        try:
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'").fetchone():
+                return None
+            row = db.execute('SELECT value FROM meta WHERE key=?', (key,)).fetchone()
+        finally:
+            db.close()
+    except sqlite3.DatabaseError as exc:
+        raise LedgerError('The harvest ledger is unreadable') from exc
+    return json.loads(row[0]) if row else None
 
 
 class Ledger:

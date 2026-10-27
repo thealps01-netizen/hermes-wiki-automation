@@ -12,18 +12,13 @@ this engine: they call these scripts and never keep their own copy of the logic.
 | Wiki Auto-Commit | `wiki_autocommit.py` | Commits what the app generated (`wiki/`, `raw/sources/`, `raw/evidence/`, `.llm-wiki/project.json`) once the app is idle, then checks that each mirror advanced: every git remote of the wiki, or only the remotes listed in `settings.json` → `mirrors` (`[]` turns the check off). |
 | Wiki Ingest Watch | `wiki_ingest_watch.py` | Checks that every source dropped into `raw/sources/` was actually ingested. |
 | Watch Dog | `watchdog.py` | Audits structure: page loss, broken links, duplicate names, isolated pages, project identity, broken skill references. Also checks the evidence store (hashes, passages, manifests, which source cites which folder) and flags decisions whose pinned LLM Wiki / Hermes code changed in the installed version. The agent-setup check (`drift_check.py`) describes one installation's own setup and runs only when `settings.json` declares `drift.expect`; `drift.agents` lists the agent setups installed on the machine, and a tool left out of it is not expected to have the shared components. Reports only. |
-| Wiki Session Harvest | `wiki_session_harvest.py` + `harvest_prompt.md` | Collects conversations finished since the last harvest (Hermes, Codex incl. archived, Claude Code, Antigravity) and drafts source candidates into `inbox/`. The morning report is written in the language the owner uses in those conversations. Never writes to the wiki. The approval system is bound to this agent job, so it stays installed when Wiki Harvest replaces it (pause it, do not delete it). |
-| Wiki Harvest | `harvest_night.py` (`harvest_pipeline.py`, `harvest_extract.py`, `harvest_merge.py`, `harvest_ledger.py`) | Script-only, installed paused. Reads every conversation changed since its last run one by one into `harvest-ledger.sqlite` (Hermes `tool` sessions skipped), then merges the new items into at most one draft per wiki page in `inbox/<night>/candidates/`. Cost cap and time limit per night from `settings.json` → `harvest_pipeline` (`cap_usd` 10, `minutes` 45); what a night does not reach waits for the next. The night's report and model replies: `harvest-nights/<night>/`. Never writes to the wiki. |
+| Wiki Harvest | `harvest_night.py` (`harvest_pipeline.py`, `harvest_extract.py`, `harvest_merge.py`, `harvest_ledger.py`) | Script-only, installed paused. Reads every conversation changed since its last run one by one into `harvest-ledger.sqlite` (Hermes `tool` sessions skipped), then merges the new items into at most one draft per wiki page in `inbox/<night>/candidates/`. Cost cap and time limit per night from `settings.json` → `harvest_pipeline` (`cap_usd` 10, `minutes` 45); what a night does not reach waits for the next. The night's report (`report.json` from merging, `night.json` for the whole night with its cost) and model replies: `harvest-nights/<night>/`. `harvest_night.py --status` (read only) is what the panel's Harvest card shows. Never writes to the wiki. |
 
-Missed runs (PC off, gateway down) catch up once when Hermes starts again. The harvest uses one
-cursor per agent, so nothing is lost or harvested twice. An agent that is not installed is skipped and
-the others still run; an agent whose history cannot be read keeps its cursor, so its conversations
-wait for a later run while the others are collected. `--last-run` prints the newest host-bound run and
-whether it was completed, read-only; it also names why an unfinished run stopped (`stop_reason`) and
-what its drafting session cost (`usage`, Hermes' own figures from the profile's `state.db`).
-`--runs` lists every host-bound run the same way (`--json` for machine output). The native plugin
-records each run's drafting session and turn end in `inbox/<run>/attempt.json` (`--record-attempt`);
-`harvest_attempts.py` lists the stop codes.
+Missed runs (PC off, gateway down) catch up once when Hermes starts again. Wiki Harvest reads the
+conversations through `wiki_session_harvest.py`'s readers (the file keeps the name of the Wiki Session
+Harvest agent job, retired in 2.13.3). An agent that is not installed is skipped and the others still
+run; an agent whose history cannot be read is named `UNREADABLE` in the night's report. Each model
+call's cost is Hermes' own figure from the profile's `state.db`.
 
 ## Tools an owner or agent calls
 
@@ -89,15 +84,7 @@ never engine code.
 This branch is an isolated release candidate, not the installed runtime. Signed owner publication
 and same-owner new-session recovery are opt-in; see `docs/recovery-design.md`. Public unbound
 approval remains disabled. Scheduler completion, notification delivery and wiki domain completion
-are different outcomes. Native harvest requires strict `harvest_workflow_enabled: true` in both
-plugin and selected engine settings, current-profile ownership and the actual configured native
-cron execution. Every bounded input read must match the captured hash and cover the whole file;
-a later restored file cannot disguise a read of different bytes. Only native completed/nonfailed/
-noninterrupted flags plus an explicit drafted/no-candidates outcome can record processing. The
-owner report is rendered separately; neither the report nor SILENT is evidence of completion.
-Legacy agent-side commit is refused. Captured input, drafted artifacts and cursor projections
-survive tested real worker death; retry reuses one journal operation and cannot rewind a cursor.
-The CLI native-outcome bridge and private helpers are privileged cooperative host implementation,
+are different outcomes. The private helpers are privileged cooperative host implementation,
 not authentication of arbitrary same-user programs or a sandbox. Live activation is not performed
 by developing or testing this branch.
 

@@ -281,5 +281,48 @@ class CostCap(unittest.TestCase):
         self.assertTrue(hx.out_of_time(140.0, 0.0, 140.0))
 
 
+
+class SessionCost(unittest.TestCase):
+    """A chat call's cost comes from Hermes' own session store; a missing figure is named, never guessed."""
+
+    COLUMNS = ('id TEXT, model TEXT, started_at REAL, ended_at REAL, end_reason TEXT, input_tokens INTEGER, '
+               'output_tokens INTEGER, cache_read_tokens INTEGER, cache_write_tokens INTEGER, '
+               'estimated_cost_usd REAL, actual_cost_usd REAL, cost_status TEXT')
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def sessions(self, *rows):
+        import sqlite3
+        db = sqlite3.connect(self.home / 'state.db')
+        db.execute(f'CREATE TABLE IF NOT EXISTS sessions ({self.COLUMNS})')
+        db.executemany('INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', rows)
+        db.commit()
+        db.close()
+
+    def test_usage_and_cost_come_from_the_session_store(self):
+        self.sessions(('session-one', 'fixture-model', 1.0, 2.0, 'cli_close', 30, 35011, 1309893, 0, 0.9451643, None,
+                       'estimated'),
+                      ('session-two', 'fixture-model', 1.0, 2.0, 'cli_close', 1, 1, 0, 0, 0.5, 0.25, 'actual'))
+        self.assertEqual(hx.usage(self.home, 'session-one'), {
+            'model': 'fixture-model', 'ended': True, 'end_reason': 'cli_close', 'input_tokens': 30,
+            'output_tokens': 35011, 'cache_read_tokens': 1309893, 'cache_write_tokens': 0,
+            'cost_usd': 0.9451643, 'cost_status': 'estimated'})
+        self.assertEqual((hx.usage(self.home, 'session-two')['cost_usd'],
+                          hx.usage(self.home, 'session-two')['cost_status']), (0.25, 'actual'))
+
+    def test_a_missing_figure_is_reported_not_guessed(self):
+        self.assertIsNone(hx.usage(self.home, None))
+        self.assertIn('error', hx.usage(None, 'session-one'))
+        self.assertIn('error', hx.usage(self.home, 'session-one'))
+        self.sessions(('other', 'fixture-model', 1.0, 2.0, 'cli_close', 1, 1, 0, 0, 0.01, None, 'estimated'))
+        self.assertIn('not in the profile session store', hx.usage(self.home, 'session-one')['error'])
+
+
 if __name__ == '__main__':
     unittest.main()

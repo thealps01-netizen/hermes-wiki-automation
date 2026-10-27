@@ -1,6 +1,6 @@
 """Sync one skill between the agent skill roots on this machine, safely.
 
-  python sync_skill.py <skill-name> --from hermes --to codex [--dry-run] [--force]
+  python sync_skill.py <skill-name> --from hermes --to codex [--dry-run]
 
 Roots:
   hermes      ~/AppData/Local/hermes/skills      (Hermes: rich frontmatter, category subdirs)
@@ -16,7 +16,6 @@ Rules encoded here:
     (name + description + author), never with Hermes' rich frontmatter
   - the target's line-ending style is preserved
   - the target directory is backed up under ~/.llmwiki-audit/backups/ before any change
-  - skills whose name is ambiguous (deliberately different per tool) refuse to sync without --force
   - verification: body hash of source vs target must match afterwards
 """
 from __future__ import annotations
@@ -33,7 +32,6 @@ ROOTS = {
     "claude": HOME / ".claude/skills",
     "antigravity": HOME / ".gemini/config/skills",
 }
-AMBIGUOUS = {"llm-wiki": "Hermes: yazım/yöntem skill'i | codex+claude: uygulamanın API skill'i"}
 BACKUP_ROOT = HOME / ".llmwiki-audit/backups"
 
 try:
@@ -85,13 +83,10 @@ def main() -> int:
     ap.add_argument("--from", dest="src", required=True, choices=ROOTS)
     ap.add_argument("--to", dest="dst", required=True, choices=ROOTS)
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--force", action="store_true")
     a = ap.parse_args()
 
     if a.src == a.dst:
         print("kaynak ve hedef aynı"); return 2
-    if a.name in AMBIGUOUS and not a.force:
-        print(f"'{a.name}' bilerek farklı: {AMBIGUOUS[a.name]}\nZorlamak için --force kullan."); return 2
 
     src_dir = find_skill(ROOTS[a.src], a.name)
     if not src_dir:

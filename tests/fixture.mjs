@@ -179,7 +179,7 @@ function ran(schedule, status, lateMin, flag) {
 
 export function jobsState() {
   const impl = { autocommit: 'wiki_autocommit.py', ingest_watch: 'wiki_ingest_watch.py',
-                 watchdog: 'watchdog.py', session_harvest: 'wiki_session_harvest.py' }
+                 watchdog: 'watchdog.py', harvest_night: 'harvest_night.py' }
   return {
     autocommit: { role: 'autocommit', name: 'Wiki Auto-Commit', id: 'aaa', live: true,
                   state: 'scheduled', schedule: '0 * * * *', impl: impl.autocommit, impl_ok: true,
@@ -190,9 +190,9 @@ export function jobsState() {
                 state: 'scheduled', schedule: '0 9 * * *', planned_schedule: '0 * * * *',
                 schedule_source: 'store', impl: impl.watchdog, impl_ok: false,
                 ...ran('0 9 * * *', 'error', 120, 'missed') },
-    session_harvest: { role: 'session_harvest', name: 'Wiki Session Harvest', id: 'hhh', live: true,
-                       kind: 'agent', state: 'scheduled', schedule: '30 21 * * *',
-                       impl: impl.session_harvest, impl_ok: true, ...ran('30 21 * * *', 'ok', 0, null) }
+    harvest_night: { role: 'harvest_night', name: 'Wiki Harvest', id: 'hhh', live: true,
+                     state: 'scheduled', schedule: '30 21 * * *',
+                     impl: impl.harvest_night, impl_ok: true, ...ran('30 21 * * *', 'ok', 0, null) }
   }
 }
 
@@ -277,6 +277,6 @@ export function engineStatus(state = 'installed_paused', current = ENGINE_REVISI
 export function enginePlan(project_root = VALID_ROOT) {
   return { ok: true, state: 'prepared', install_id: '1'.repeat(64), plan_digest: '2'.repeat(64),
     revision: ENGINE_REVISION, project_root, project_id: 'auto-id', engine_dir: '/srv/engine/code',
-    audit_dir: '/srv/engine/data', jobs: [{ role: 'session_harvest', name: 'Wiki Session Harvest',
+    audit_dir: '/srv/engine/data', jobs: [{ role: 'harvest_night', name: 'Wiki Harvest',
       schedule: '*/15 * * * *' }], activation: 'New jobs remain paused. Resume them separately in Scheduled jobs.' }
 }

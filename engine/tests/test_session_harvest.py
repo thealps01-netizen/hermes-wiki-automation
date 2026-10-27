@@ -1,4 +1,4 @@
-"""wiki_session_harvest.py's Hermes reader against the ways Hermes stores one message more than once.
+"""wiki_session_harvest.py's readers: the ways Hermes stores one message more than once, and unreadable histories.
 
 Run: python tests/test_session_harvest.py   (stdlib only; builds a throwaway state.db, never reads
 the real Hermes home)
@@ -11,6 +11,7 @@ survive only in archived rows, because the visible copy is merged into the compa
 the harvest drops; filtering on Hermes' visibility columns would lose it, so the reader must
 de-duplicate instead of filter.
 """
+import json
 import sqlite3
 import sys
 import tempfile
@@ -119,6 +120,66 @@ class CodexReader(unittest.TestCase):
             got = {sid: [m[2] for m in msgs] for sid, _, msgs in harvest.read_codex(Path(tmp), 0, 4e9)}
         self.assertEqual(sorted(got), ["rollout-old", "rollout-plain"])
         self.assertEqual(got["rollout-old"], ["old"])
+
+
+class ReaderFailures(unittest.TestCase):
+    """A history that cannot be read raises instead of reading as empty, and nothing is silently clipped."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_malformed_claude_history_is_not_reported_as_an_empty_reader(self):
+        claude = self.root / "claude"
+        (claude / "project").mkdir(parents=True)
+        (claude / "project/corrupt.jsonl").write_bytes(b"{broken historical message\n")
+        with self.assertRaises(harvest.HarvestError):
+            list(harvest.read_claude(claude, 0, float("inf")))
+
+    def test_malformed_codex_history_is_not_reported_as_an_empty_reader(self):
+        codex = self.root / "codex"
+        (codex / "sessions").mkdir(parents=True)
+        (codex / "sessions/corrupt.jsonl").write_bytes(b"{broken historical message\n")
+        with self.assertRaises(harvest.HarvestError):
+            list(harvest.read_codex(codex, 0, float("inf")))
+
+    def test_antigravity_reader_preserves_utf8_and_refuses_decode_loss(self):
+        root = self.root / "antigravity"
+        log = root / "brain/utf8-fixture/.system_generated/logs/transcript_full.jsonl"
+        log.parent.mkdir(parents=True)
+        text = "Owner decision: caf\u00e9, \u0131, \u4e2d\u6587"
+        valid = {"type": "USER_INPUT", "content": "<USER_REQUEST>" + text + "</USER_REQUEST>", "created_at": 100}
+        log.write_bytes(json.dumps(valid, ensure_ascii=False).encode("utf-8") + b"\n")
+        rows = list(harvest.read_antigravity(root, 0, 1000))
+        self.assertEqual(rows[0][2], [(100.0, "user", text)])
+        log.write_bytes(b'{"type":"USER_INPUT","content":"owner \xff bytes","created_at":100}\n')
+        with self.assertRaises((UnicodeError, harvest.HarvestError)):
+            list(harvest.read_antigravity(root, 0, 1000))
+        log.write_bytes(json.dumps(valid).encode() + b'\n{"type":"USER_INPUT","content":"truncated owner decision\n')
+        with self.assertRaises(harvest.HarvestError):
+            list(harvest.read_antigravity(root, 0, 1000))
+
+    def test_a_missing_folder_is_not_found_not_empty(self):
+        for reader in (harvest.read_hermes, harvest.read_codex, harvest.read_claude, harvest.read_antigravity):
+            with self.subTest(reader=reader.__name__), self.assertRaises(FileNotFoundError):
+                list(reader(self.root / "absent", 0, 1000))
+
+    def test_corrupt_old_cursors_are_not_a_first_run(self):
+        path = self.root / "harvest-state.json"
+        path.write_bytes(b"{broken")
+        with self.assertRaises(harvest.HarvestError):
+            harvest.load_state(path)
+        self.assertEqual(path.read_bytes(), b"{broken")
+        self.assertEqual(harvest.load_state(self.root / "absent.json"), {"cursors": {}})
+
+    def test_user_text_is_not_silently_clipped(self):
+        text = "u" * (harvest.USER_CLIP + 17)
+        rendered, clip = harvest.render("Fixture", [(1, "user", text)], 10000)
+        self.assertIn(text, "\n".join(rendered))
+
 
 if __name__ == "__main__":
     unittest.main()

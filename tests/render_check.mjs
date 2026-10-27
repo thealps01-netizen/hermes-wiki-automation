@@ -324,8 +324,8 @@ async function mount(appLocale = 'en', overrides = {}) {
         }
         if (path === '/owner/activation') {
           if (stub.state.ownerActivate) return stub.state.ownerActivate(opts.body)
-          stub.state.ownerSetup = { ...stub.state.ownerSetup, active: true, ready: false }
-          return { ok: true, restart_required: true }
+          stub.state.ownerSetup = { ...stub.state.ownerSetup, active: true, ready: true }
+          return { ok: true, activated: true }
         }
         if (path === '/owner/recover') {
           if (stub.state.recoverAct) return stub.state.recoverAct(opts.body)
@@ -375,7 +375,7 @@ async function mount(appLocale = 'en', overrides = {}) {
       if (path === '/owner/recoverable') return { ok: true, operations: stub.state.recoverable || [] }
       if (path === '/owner/activation') return stub.state.ownerSetup
         || { ok: true, active: true, ready: true, code_changed: false, owner: 'local_owner',
-             job: { id: 'job-h', name: 'Wiki Session Harvest', schedule: '30 21 * * *' }, plan_digest: 'd'.repeat(64) }
+             plan_digest: 'd'.repeat(64) }
       if (path === '/candidates') {
         return stub.state.candPayload || { ok: true, audit_dir: '/srv/audit', candidates: [...stub.state.candList] }
       }
@@ -1971,7 +1971,7 @@ for (const state of ['applying', 'recovery_required', 'unavailable']) {
 {
   const adoption = { ...enginePlan(), jobs: [
     { role: 'watchdog', name: 'Watch Dog', schedule: '0 9 * * *', disposition: 'adopt_existing' },
-    { role: 'session_harvest', name: 'Wiki Session Harvest', schedule: '30 21 * * *', disposition: 'adopt_paused' },
+    { role: 'session_harvest', name: 'Wiki Session Harvest', schedule: '30 21 * * *', disposition: 'retire' },
     { role: 'autocommit', name: 'Wiki Auto-Commit', schedule: '0 9 * * *', disposition: 'keep_existing' },
     { role: 'ingest_watch', name: 'Wiki Ingest Watch', schedule: '0 9 * * *', disposition: 'create_paused' }] }
   const probe = await mount('en', { engineStatus: { ...engineStatus('existing_unverified'), current_revision: null },
@@ -1984,7 +1984,7 @@ for (const state of ['applying', 'recovery_required', 'unavailable']) {
   if (enginePosts().length) fail('legacy engine status prepared or applied on mount')
   await click(btn(card, 'Preview update'), 0)
   must(txt(card), ['watchdog · Watch Dog · 0 9 * * * · adopted in place: schedule and on/off state kept; working folder, interpreter and launcher updated',
-    'session_harvest · Wiki Session Harvest · 30 21 * * * · adopted in place and paused: new drafting prompt and tools; turn it on in Tasks after checking',
+    'session_harvest · Wiki Session Harvest · 30 21 * * * · removed: this role was retired and is not recreated',
     'autocommit · Wiki Auto-Commit · 0 9 * * * · kept as is',
     'ingest_watch · Wiki Ingest Watch · 0 9 * * * · new, paused', adoption.plan_digest], 'legacy adoption plan')
   await click(btn(card, 'Install this exact plan'), 0)
@@ -2333,12 +2333,12 @@ await closeDetail(p.host)
 if (stub.calls.posts.length !== postsBeforeMap) fail('opening a branch or a station posted a write')
 
 // LIVE: the Harvest station (and the found, enabled branch lines) read `run` only while the run store
-// holds an ACTIVE run of the session-harvest job itself; a claimed run counts, a five-hour-old one does not.
+// holds an ACTIVE run of the Wiki Harvest job itself; a claimed run counts, a five-hour-old one does not.
 const harvestRun = status => ({ at: new Date().toISOString(), status, status_label: status, delivery: 'none',
   delivery_label: 'None', ms: null, error_preview: null })
 const withHarvest = (...statuses) => {
   const value = runs()
-  value.jobs.push({ role: 'session_harvest', job_id: 'hhh', name: 'Wiki Session Harvest', live: true,
+  value.jobs.push({ role: 'harvest_night', job_id: 'hhh', name: 'Wiki Harvest', live: true,
     runs: statuses.map(harvestRun) })
   return value
 }
@@ -2521,7 +2521,7 @@ const initialControls = new Map([
   ['Wiki Auto-Commit', ['Pause job', 'Schedule', 'Delete job']],
   ['Wiki Ingest Watch', ['Create in installation']],
   ['Watch Dog', ['Pause job', 'Schedule', 'Delete job']],
-  ['Wiki Session Harvest', ['Pause job', 'Schedule']]
+  ['Wiki Harvest', ['Pause job', 'Schedule', 'Delete job']]
 ])
 const disclosurePosts = stub.calls.posts.length
 const disclosureGets = stub.calls.gets.length
@@ -2585,19 +2585,17 @@ if (!rowOf('Wiki Auto-Commit') || !txt(rowOf('Wiki Auto-Commit')).includes('Live
   fail('the live state is not printed on the job row itself')
 }
 if (txt(jobsCard).includes('Paused')) fail('a paused state is shown before anything was paused')
-// FOUR ROLES FROM THE ENGINE: the agent job (Wiki Session Harvest) is listed like the others, marked as
-// an agent job, and offers neither Delete nor Create — the engine's installer owns its definition.
+// FOUR ROLES FROM THE ENGINE (2.13.3): Wiki Harvest replaced the Wiki Session Harvest agent job; it is a
+// script job like the others, with no agent badge.
 if (jobsCard.querySelectorAll('.wa-job').length !== 4) {
   fail(`the jobs card does not list the four engine roles: ${jobsCard.querySelectorAll('.wa-job').length}`)
 }
-const harvestRow = rowOf('Wiki Session Harvest')
-if (!harvestRow) fail('the fourth job (Wiki Session Harvest) is missing from the jobs card')
+const harvestRow = rowOf('Wiki Harvest')
+if (!harvestRow) fail('the fourth job (Wiki Harvest) is missing from the jobs card')
 else {
-  must(txt(harvestRow), ['Agent', 'Every day at 21:30', '30 21 * * *', 'Live', 'Pause job', 'Schedule'],
-    'agent job row')
-  if (txt(harvestRow).includes('Delete job') || txt(harvestRow).includes('Create in installation')) {
-    fail('the agent job offers a create or delete the engine owns')
-  }
+  must(txt(harvestRow), ['Every day at 21:30', '30 21 * * *', 'Live', 'Pause job', 'Schedule', 'Delete job'],
+    'Wiki Harvest row')
+  if (txt(harvestRow).includes('Agent')) fail('the Wiki Harvest script job carries an agent badge')
 }
 // THE ROW SUMMARY (2.1.0): the schedule as a sentence first, the cron beside it in mono behind a Tip, then
 // the next run (absolute and relative), the last run with its result, and a late/missed flag when the
@@ -2653,7 +2651,7 @@ else {
     || !/— 11 min late$/.test(flag(ac).getAttribute('data-tip') || '')) {
     fail(`a late dispatch is not flagged Late with its lateness: ${txt(flag(ac))} ${flag(ac)?.getAttribute('data-tip')}`)
   }
-  if (flag(rowOf('Wiki Session Harvest'))) fail('an on-time job carries a late/missed flag')
+  if (flag(rowOf('Wiki Harvest'))) fail('an on-time job carries a late/missed flag')
   if (rowOf('Wiki Ingest Watch')?.querySelector('.wa-job-runs')) fail('a job with no store record prints run times')
   for (const row of [ac, wd]) {
     if (row.querySelector('.wa-job-line .wa-job-flag, .wa-job-line [data-run]')) {
@@ -3365,15 +3363,17 @@ await act(async () => recoveryFrame.unmount())
 
 // OWNER SETUP: while no owner is bound, Review shows what turning it on changes instead of a 403,
 // never asks for interrupted approvals, and sends only the shown plan digest after a second click.
+// Turning it on needs no restart: no drafting job or background runtime check is involved any more.
 stub.state.recoverable = []
 await settle(120)
-stub.state.ownerSetup = { ok: true, active: false, ready: false, code_changed: false, owner: 'local_owner',
-  job: { id: 'job-h', name: 'Wiki Session Harvest', schedule: '30 21 * * *' }, plan_digest: 'e'.repeat(64) }
+stub.state.ownerSetup = { ok: true, active: false, ready: false, owner: 'local_owner', plan_digest: 'e'.repeat(64) }
 const setupFrame = await mount('en', { tab: 'Folio', openConfig: false })
 const setupCard = () => document.querySelector('[data-owner-setup]')
 if (setupCard()?.getAttribute('data-owner-setup') !== 'off') throw new Error('Review hid that owner approval is off')
-must(txt(setupCard()), ['Owner approval is off', 'this computer\'s Hermes session', 'Wiki Session Harvest (30 21 * * *)',
-  'wiki drafting tools only', 'one restart'], 'owner setup card')
+must(txt(setupCard()), ['Owner approval is off', 'this computer\'s Hermes session'], 'owner setup card')
+for (const gone of ['Session Harvest', 'drafting tools', 'restart', 'Restart']) {
+  if (txt(setupCard()).includes(gone)) throw new Error(`Owner setup still mentions the retired drafting runtime: ${gone}`)
+}
 if (document.querySelector('[data-recovery-list]')) throw new Error('An unbound owner still shows an interrupted-approvals error')
 if (!stub.calls.gets.includes('/owner/activation') || stub.calls.gets.includes('/owner/recoverable')) {
   throw new Error('Review asked for interrupted approvals before an owner was bound')
@@ -3388,31 +3388,22 @@ await click(btn(setupCard(), 'Confirm and turn on'), 200)
 if (setupPosts().length !== 1 || JSON.stringify(setupPosts()[0].body) !== JSON.stringify({ confirm: true, plan_digest: 'e'.repeat(64) })) {
   throw new Error(`Owner setup sent more than the shown plan: ${JSON.stringify(setupPosts().map(x => x.body))}`)
 }
-must(txt(setupCard()), ['Restart the background service to finish', 'Owner approval is on', 'A task running right now is stopped'],
-  'owner setup restart state')
-if (document.querySelector('[data-recovery-list]') || stub.calls.gets.includes('/owner/recoverable')) {
-  throw new Error('Review asked for interrupted approvals before the runtime was ready')
-}
-await click(btn(setupCard(), 'Restart background service'), 60)
-if (stub.host.restartCalls !== 0) throw new Error('The background service restarted on the first click')
-await click(btn(setupCard(), 'Cancel'), 60)
-if (btn(setupCard(), 'Restart now')) throw new Error('Cancel left the restart armed')
-await click(btn(setupCard(), 'Restart background service'), 60)
-stub.host.onRestart = () => { stub.state.ownerSetup = { ...stub.state.ownerSetup, ready: true }; return { ok: true, pid: 1, name: 'gateway-restart' } }
-await click(btn(setupCard(), 'Restart now'), 200)
-if (stub.host.restartCalls !== 1) throw new Error(`Restart now sent ${stub.host.restartCalls} restarts`)
-await settle(5600)
-must(txt(setupCard()), ['Owner approval is ready.'], 'owner setup after the service restarted')
-stub.host.onRestart = null
+await settle(200)
+must(txt(setupCard()), ['Owner approval is on'], 'owner setup after turning it on')
+if (stub.host.restartCalls !== 0) throw new Error('Turning on owner approval restarted the background service')
 await act(async () => setupFrame.unmount())
-stub.state.ownerSetup = { ...stub.state.ownerSetup, active: false, code_changed: true }
+stub.state.ownerSetup = { ...stub.state.ownerSetup, active: true, ready: false }
+const unreadyFrame = await mount('en', { tab: 'Folio', openConfig: false })
+must(txt(document.body), ['could not read the owner approval setup', 'engine code or its settings could not be read'],
+  'owner approval on but not ready')
+await act(async () => unreadyFrame.unmount())
+stub.state.ownerSetup = { ...stub.state.ownerSetup, active: false, ready: false }
 stub.state.ownerActivate = () => ({ ok: false, reason: 'Engine settings belong to another profile' })
-const changedFrame = await mount('en', { tab: 'Folio', openConfig: false })
-must(txt(setupCard()), ['Wiki Automation was updated'], 'owner setup after a plugin update')
+const refusedFrame = await mount('en', { tab: 'Folio', openConfig: false })
 await click(btn(setupCard(), 'Turn on owner approval'), 60)
 await click(btn(setupCard(), 'Confirm and turn on'), 200)
 must(txt(setupCard()), ['Engine settings belong to another profile', 'Turn on owner approval'], 'refused owner setup keeps retry')
-await act(async () => changedFrame.unmount())
+await act(async () => refusedFrame.unmount())
 stub.state.ownerSetup = null
 stub.state.ownerActivate = null
 
@@ -4564,11 +4555,11 @@ await click(refreshButton(sourceStale.host), 80)
 if (detailOf(sourceStale.host, 'line:codex') || sourceStale.host.querySelector('[data-wa-line][aria-pressed="true"]')) {
   fail('removing the open adapter left its branch detail open')
 }
-// Harvest station state is the session-harvest role, not another job or an invented healthy default.
+// Harvest station state is the Wiki Harvest role, not another job or an invented healthy default.
 for (const [change, expected, state] of [[{ state: 'paused' }, 'Paused', 'paused'], [{ impl_ok: false }, 'Missing target', 'bad'],
   [{ live: false }, 'Not created', null]]) {
   const jobState = jobsState()
-  Object.assign(jobState.session_harvest, change)
+  Object.assign(jobState.harvest_night, change)
   const collectorState = await mount('en', { jobs: jobsView(jobState), openConfig: false })
   const station = collectorState.host.querySelector('[data-wa-station="harvest"]')
   if (state && station?.dataset.state !== state) fail(`harvest ${expected}: the station is data-state=${station?.dataset.state}, expected ${state}`)
@@ -4577,7 +4568,7 @@ for (const [change, expected, state] of [[{ state: 'paused' }, 'Paused', 'paused
   if (collectorState.errors.size) fail(`harvest ${expected} threw: ${[...collectorState.errors].join(' | ')}`)
 }
 const invalidTargetJobs = jobsView(jobsState())
-invalidTargetJobs.roles.find(r => r.role === 'session_harvest').target.root_ok = false
+invalidTargetJobs.roles.find(r => r.role === 'harvest_night').target.root_ok = false
 const invalidCollector = await mount('en', { jobs: invalidTargetJobs, openConfig: false })
 must(txt(invalidCollector.host.querySelector('[data-wa-station="harvest"]')) + txt(await openDetail(invalidCollector.host, 'harvest')),
   ['Not verified'], 'unverified harvest target')
@@ -4630,9 +4621,9 @@ if (problems.length) {
 console.log('render check OK — registration (page + sidebar) · ONE Metro view (no tab strip, no per-view title, '
   + 'no Nexus map/inspector/wires, no heartbeat strip, no lower queue; History / Settings / station / branch details '
   + 'toggled by aria-pressed, one at a time, folded by a second press) · branch lines = backend adapter facts '
-  + '(ok/missing/off/run, cursor, honesty note) · Harvest station live only for an active session-harvest run · '
+  + '(ok/missing/off/run, cursor, honesty note) · Harvest station live only for an active Wiki Harvest run · '
   + 'read-failed alert keeps the backend reason and never says Good service · Settings holds root · install · jobs · '
-  + 'the four engine job roles (closed native job disclosures, 52px summaries, independent zero-request open/close, unchanged expanded controls, explicit disclosure opening before actions; the agent job marked, never created or deleted here) · '
+  + 'the four engine job roles (closed native job disclosures, 52px summaries, independent zero-request open/close, unchanged expanded controls, explicit disclosure opening before actions; Wiki Harvest a script job with no agent badge) · '
   + 'the review desk (one draft at a time, k of N, Later by identity, actual Markdown heading with summary fallback, faithful readable changes and accessible signs, literal HTML/Markdown and whitespace preserved, exact original diff/Copy behind a closed native disclosure, read-only reason/evidence and projection resets, immediate first-document selection with exactly one read and no writes, selected detail only, distinct-heading out-of-order detail race, disappearing candidate and format approval gates, retained confirmation callbacks invalidated by cancellation or same-ref refresh/rearming, single-use current confirmation, late dry-run refresh invalidation, Approve two-step, Reject with its '
   + 'reason, the engine output kept, one EmptyState, a failed read keeping its error) · root selection '
   + '(ctx.os.pickOpenPath, a cancelled pick is no silent success) · verification · save GATE '

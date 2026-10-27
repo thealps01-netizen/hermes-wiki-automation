@@ -1,8 +1,7 @@
-from . import draft_security, runtime_probe, runtime_channel, harvest_runtime
+"""Hermes entry point of Wiki Automation. The panel is dashboard/ and desktop/, the engine is engine/.
+Since 2.13.3 the plugin registers no tool and no hook: the drafting toolset and its veto were removed
+with the drafting agent job (Docs/owner-approval.md)."""
 
 
 def register(ctx):
-    draft_security.register(ctx)
-    runtime_probe.register(ctx)
-    runtime_channel.register(ctx)
-    harvest_runtime.register(ctx)
+    return None

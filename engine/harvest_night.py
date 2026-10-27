@@ -16,8 +16,17 @@ WHERE IT STARTS: the ledger remembers the last collection. On the very first run
 current packed harvest stopped (its oldest cursor in harvest-state.json, read only), or `start` when
 set, or `first_run_days` ago.
 
+THE NIGHT'S RECORD: the JSON line it prints is also kept as <audit>/harvest-nights/<night>/night.json,
+with `started`, `finished` and the night's whole `cost_usd` (reading + merging). The panel's Harvest
+card reads it to show the last night (drafts, why it stopped, cost) beside the cron run it belongs to.
+
+STATUS: `harvest_night.py --status` prints one JSON line and writes nothing: each conversation source
+(on/off, folder found, how far the conversations were collected) and the newest night's record. A
+source whose reader reported its folder missing on the last night counts as not found.
+
 EXIT: 0 = the night ran (also when it stopped at a limit; the report says why); 1 = it could not run
-(settings, ledger or a model call failed), with the reason on the last line. Prints one JSON line.
+(settings, ledger or a model call failed, or its record could not be written), with the reason on the
+last line. Prints one JSON line.
 """
 from __future__ import annotations
 
@@ -28,7 +37,7 @@ import shutil
 import socket
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -43,6 +52,7 @@ DEFAULTS = {'read_model': 'claude-sonnet-5-5', 'merge_model': 'claude-opus-5-5',
             'cap_usd': 10.0, 'minutes': 45, 'call_timeout_seconds': 600, 'start': None}
 READ_SHARE = 0.7          # reading may use this share of the cap and of the time
 OVERLAP_SECONDS = 6 * 3600   # re-scan this much before the last collection; the ledger skips what it has
+RECORD = 'night.json'
 
 
 def settings_of(cfg):
@@ -102,13 +112,79 @@ def run_night(ledger, *, extract, merge_caller, wiki, inbox, nights, rules_text,
     return report
 
 
+def stamp(epoch):
+    return datetime.fromtimestamp(epoch, timezone.utc).astimezone().isoformat(timespec='seconds')
+
+
+def night_cost(out):
+    read, merge = out.get('read') or {}, out.get('merge') or {}
+    return round(float(read.get('cost_usd') or 0) + float(merge.get('cost_usd') or 0), 6)
+
+
+def write_record(nights, night, out, started, finished):
+    """Keep the night's printed report beside its replies (see THE NIGHT'S RECORD)."""
+    folder = checked_path(nights, night)
+    folder.mkdir(parents=True, exist_ok=True)
+    record = {**out, 'night': night, 'started': stamp(started), 'finished': stamp(finished),
+              'cost_usd': night_cost(out)}
+    tmp = folder / (RECORD + '.tmp')
+    tmp.write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding='utf-8')
+    os.replace(tmp, folder / RECORD)
+
+
+def last_record(nights):
+    """The newest night that has a record; nights from before 2.13.3 have none and are skipped."""
+    if not nights.is_dir():
+        return None
+    for folder in sorted((path for path in nights.iterdir() if path.is_dir()), key=lambda path: path.name,
+                         reverse=True):
+        path = folder / RECORD
+        if path.is_file():
+            record = json.loads(path.read_bytes())
+            if not isinstance(record, dict) or record.get('night') != folder.name:
+                raise ValueError(f'Night {folder.name} has an unreadable {RECORD}')
+            return record
+    return None
+
+
+def status(cfg):
+    import wikiconfig
+    import wiki_session_harvest as wsh
+    audit = wikiconfig.audit_dir(cfg)
+    hcfg = {**wsh.DEFAULTS, **(cfg.get('harvest') or {})}
+    switches = {**wsh.DEFAULTS['agents'], **(hcfg.get('agents') or {})}
+    roots = wsh.agent_roots(cfg)
+    until = hl.read_meta(checked_path(audit, 'harvest-ledger.sqlite'), 'collected_until')
+    old = {} if until is not None else wsh.load_state(checked_path(audit, 'harvest-state.json'))['cursors']
+    first = f"none (first run looks back {hcfg['first_run_days']} days)"
+    last = last_record(checked_path(audit, 'harvest-nights'))
+    reports = (last or {}).get('agents') or {}
+    agents = []
+    for agent, on in switches.items():
+        root = roots.get(agent)
+        point = until if until is not None else old.get(agent)
+        found = bool(root and root.exists()) and not str(reports.get(agent, '')).startswith('not found')
+        agents.append({'id': agent, 'enabled': bool(on), 'found': found,
+                       'cursor': stamp(point) if point is not None else first})
+    return {'ok': True, 'agents': agents, 'last_night': last}
+
+
 def main(argv):
     import wikiconfig
     import wiki_session_harvest as wsh
+    if argv == ['--status']:
+        try:
+            out = status(wikiconfig.load())
+        except (hl.LedgerError, PathRefused, wikiconfig.ConfigError, OSError, ValueError) as exc:
+            out = {'ok': False, 'error': str(exc)}
+        print(json.dumps(out, ensure_ascii=False))
+        return 0 if out['ok'] else 1
     out = {'ok': True}
+    night = nights = None
+    started = time.time()
     try:
         if argv:
-            raise ValueError(f'harvest_night.py takes no arguments (got {argv[0]!r})')
+            raise ValueError(f'harvest_night.py takes no arguments except --status (got {argv[0]!r})')
         cfg = wikiconfig.load()
         settings = settings_of(cfg)
         audit, wiki = wikiconfig.audit_dir(cfg), wikiconfig.project_root(cfg)
@@ -123,6 +199,7 @@ def main(argv):
         rules = hp.owner_rules(cfg)
         rules_text = (Path(__file__).resolve().parent / 'harvest_prompt.md').read_text(encoding='utf-8')
         now = time.time()
+        nights = checked_path(audit, 'harvest-nights')
         night = datetime.fromtimestamp(now).strftime('%Y%m%d-%H%M%S-') + secrets.token_hex(6)
         with hl.Ledger(checked_path(audit, 'harvest-ledger.sqlite')) as ledger:
             old = wsh.load_state(checked_path(audit, 'harvest-state.json'))['cursors']
@@ -135,7 +212,7 @@ def main(argv):
             ledger.set_meta('collected_until', until)
             out.update(run_night(ledger, extract=lambda parts: hx.extract(parts, read_call, rules),
                                  merge_caller=merge_call, wiki=wiki, inbox=checked_path(audit, 'inbox'),
-                                 nights=checked_path(audit, 'harvest-nights'), rules_text=rules_text, night=night,
+                                 nights=nights, rules_text=rules_text, night=night,
                                  today=datetime.fromtimestamp(now).strftime('%Y-%m-%d'), settings=settings))
             out['ledger'] = ledger.summary()
         if out['stopped'] and out['stopped'].startswith('call failed'):
@@ -143,6 +220,11 @@ def main(argv):
     except (hl.LedgerError, hx.ExtractError, hm.MergeError, PathRefused, wikiconfig.ConfigError, OSError,
             ValueError) as exc:
         out = {'ok': False, 'error': str(exc)}
+    if night is not None:
+        try:
+            write_record(nights, night, out, started, time.time())
+        except (PathRefused, OSError) as exc:
+            out = {**out, 'ok': False, 'error': f'The night ran but its record could not be written: {exc}'}
     print(json.dumps(out, ensure_ascii=False))
     return 0 if out['ok'] else 1
 

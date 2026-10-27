@@ -215,26 +215,32 @@ def _preview(record):
     plan = record['plan']
     adopted = plan.get('legacy_adoptions') or {}
     refresh = plan.get('job_refresh') or {}
-    existing = {job['id'] for job in plan.get('existing_jobs') or []}
+    retire = plan.get('job_retire') or {}
+    existing = {job['id']: job for job in plan.get('existing_jobs') or []}
     mapped = plan['settings'].get('jobs') or {}
 
     def disposition(role):
         if role in adopted:
-            return 'adopt_paused' if plan['job_definitions'][role]['kind'] == 'agent' else 'adopt_existing'
+            return 'adopt_existing'
         if role in refresh:
             return 'refresh_' + refresh[role]['field']
         return 'keep_existing' if mapped.get(role) in existing else 'create_paused'
+    jobs = [{'role': role, 'name': job['name'],
+        'schedule': (plan['settings'].get('schedule') or {}).get(role) or job['default_schedule'],
+        'disposition': disposition(role)}
+        for role, job in sorted(plan['job_definitions'].items())]
+    jobs.extend({'role': role, 'name': existing[job_id].get('name') or role,
+        'schedule': (existing[job_id].get('schedule') or {}).get('display') or '',
+        'disposition': 'retire'} for role, job_id in sorted(retire.items()))
     return {'ok': True, 'state': record['state'], 'install_id': record['install_id'],
         'plan_digest': plan['digest'], 'revision': record['manifest']['revision'],
         'project_root': plan['settings']['project_root'], 'project_id': plan['project_id'],
         'requested_project_root': record['requested_project_root'],
         'engine_dir': plan['engine_dir'], 'audit_dir': plan['audit_dir'],
-        'jobs': [{'role': role, 'name': job['name'],
-            'schedule': (plan['settings'].get('schedule') or {}).get(role) or job['default_schedule'],
-            'disposition': disposition(role)}
-            for role, job in sorted(plan['job_definitions'].items())],
+        'jobs': jobs,
         'activation': ('Adopted script jobs keep their schedule and on/off state and run the new engine code '
-            'from their next scheduled run. An adopted drafting job is paused until you turn it on. ' if adopted else '')
+            'from their next scheduled run. ' if adopted else '')
+            + ('A job of a retired role is removed and not recreated. ' if retire else '')
             + 'New jobs remain paused. Content-owner authority is not configured by installation.'}
 
 

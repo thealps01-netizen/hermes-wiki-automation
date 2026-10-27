@@ -49,8 +49,7 @@ _EXPLAIN_TEXT = {
     'harvest_failed': 'Harvest status failed (exit {code}): {error}',
     'harvest_unsupported': 'Harvest status format is unsupported. Update the panel and engine.',
     'harvest_empty': 'Harvest status returned no adapters.',
-    'harvest_last_failed': 'The last harvest run could not be read (exit {code}): {error}',
-    'harvest_last_unsupported': 'The last harvest run format is unsupported. Update the panel and engine.',
+    'harvest_last_unsupported': 'The last harvest night format is unsupported. Update the panel and engine.',
     'auto_title': 'Wiki Automation',
     'auto_sub': 'watched project root and install status',
     'auto_missing': 'automation folder not found (~/.llmwiki-audit) — the package is not installed here',
@@ -1083,6 +1082,62 @@ def _body_text(body: dict, key: str) -> str:
 @_selected_operation
 def harvest_status():
     paths = _engine_paths()
+    failed = {"ok": False, "agents": []}
+    night = paths.engine_dir / "harvest_night.py"
+    if night.is_file():
+        try:
+            proc = subprocess.run([sys.executable, "-B", str(night), "--status"], capture_output=True,
+                                  text=True, encoding="utf-8", errors="replace", timeout=15, env=paths.environment())
+        except (OSError, subprocess.SubprocessError) as exc:
+            return {**failed, "error": _tx("harvest_call_failed", error=str(exc))}
+        row = _script_json(proc)
+        older = isinstance(row, dict) and "takes no arguments (got" in str(row.get("error"))
+        if not older:
+            if proc.returncode != 0:
+                return {**failed, "error": _tx("harvest_failed", code=proc.returncode,
+                                               error=row.get("error") if isinstance(row, dict) and row.get("error")
+                                               else _script_text(proc))}
+            return _night_status(row)
+    return _packed_status(paths)
+
+
+def _night_status(row):
+    failed = {"ok": False, "agents": []}
+    rows = row.get("agents") if isinstance(row, dict) and row.get("ok") is True else None
+    if not isinstance(rows, list) or not all(
+            isinstance(item, dict) and isinstance(item.get("id"), str) and isinstance(item.get("enabled"), bool)
+            and isinstance(item.get("found"), bool) and isinstance(item.get("cursor"), str) for item in rows) \
+            or len({item["id"] for item in rows}) != len(rows):
+        return {**failed, "error": _tx("harvest_unsupported")}
+    if not rows:
+        return {**failed, "error": _tx("harvest_empty")}
+    agents = [{key: item[key] for key in ("id", "enabled", "found", "cursor")} for item in rows]
+    last = row.get("last_night")
+    if last is None:
+        return {"ok": True, "agents": agents, "last_night_supported": True, "last_night": None}
+    night = _night_record(last)
+    if night is None:
+        return {**failed, "error": _tx("harvest_last_unsupported")}
+    return {"ok": True, "agents": agents, "last_night_supported": True, "last_night": night}
+
+
+def _night_record(last):
+    if not isinstance(last, dict):
+        return None
+    reports = last.get("agents") or {}
+    merge = last.get("merge") or {}
+    if not all(isinstance(last.get(key), str) for key in ("night", "started", "finished")) \
+            or not isinstance(last.get("ok"), bool) or type(last.get("cost_usd")) not in (int, float) \
+            or not isinstance(reports, dict) or not all(isinstance(value, str) for value in reports.values()) \
+            or not isinstance(merge, dict) or not isinstance(merge.get("candidates") or [], list):
+        return None
+    words = {key: last[key] if isinstance(last.get(key), str) and last[key] else None for key in ("stopped", "error")}
+    return {"night": last["night"], "started": last["started"], "finished": last["finished"], "ok": last["ok"],
+            **words, "cost_usd": last["cost_usd"], "drafts": len(merge.get("candidates") or []),
+            "agents": dict(reports)}
+
+
+def _packed_status(paths):
     script = paths.engine_dir / "wiki_session_harvest.py"
     failed = {"ok": False, "agents": []}
     if not script.is_file():
@@ -1107,32 +1162,7 @@ def harvest_status():
                        "cursor": match[4]})
     if not agents:
         return {**failed, "error": _tx("harvest_empty")}
-    try:
-        last = subprocess.run([sys.executable, "-B", str(script), "--last-run"], capture_output=True,
-                              text=True, encoding="utf-8", errors="replace", timeout=15, env=paths.environment())
-    except (OSError, subprocess.SubprocessError) as exc:
-        return {**failed, "error": _tx("harvest_call_failed", error=str(exc))}
-    if last.returncode == 2 and "unrecognized arguments: --last-run" in (last.stderr or ""):
-        return {"ok": True, "agents": agents, "last_run_supported": False, "last_run": None}
-    row = _script_json(last)
-    if last.returncode != 0:
-        return {**failed, "error": _tx("harvest_last_failed", code=last.returncode,
-                                       error=(row or {}).get("error") if isinstance(row, dict) and row.get("error")
-                                       else _script_text(last))}
-    if not isinstance(row, dict) or row.get("ok") is not True or "run" not in row:
-        return {**failed, "error": _tx("harvest_last_unsupported")}
-    if row["run"] is None:
-        return {"ok": True, "agents": agents, "last_run_supported": True, "last_run": None}
-    agent_states = row.get("agents")
-    if not isinstance(row.get("execution_id"), str) or not isinstance(row.get("committed"), bool) \
-            or not isinstance(agent_states, dict) or not all(isinstance(value, str) for value in agent_states.values()):
-        return {**failed, "error": _tx("harvest_last_unsupported")}
-    stop, spent = row.get("stop_reason"), row.get("usage")
-    return {"ok": True, "agents": agents, "last_run_supported": True,
-            "last_run": {**{key: row.get(key) for key in ("run", "execution_id", "created", "committed", "status", "agents")},
-                         "stop_reason": stop if isinstance(stop, dict) and isinstance(stop.get("detail"), str) else None,
-                         "cost_usd": spent.get("cost_usd") if isinstance(spent, dict)
-                         and isinstance(spent.get("cost_usd"), (int, float)) else None}}
+    return {"ok": True, "agents": agents, "last_night_supported": False, "last_night": None}
 
 
 @router.get("/candidates")
@@ -1186,108 +1216,27 @@ def _owner_binding():
     return _engine_file(ENGINE_SETTINGS).get('owner_approval_owner')
 
 
-def _draft_guard():
-    from functools import partial
-    from hermes_cli.plugins import iter_hook_callbacks
-    guard_file = Path(__file__).resolve().parents[1] / 'draft_security.py'
-    guards = [cb for cb in iter_hook_callbacks('pre_tool_call') if isinstance(cb, partial) and cb.args
-              and getattr(cb.func, '__name__', '') == 'draft_guard'
-              and Path(cb.func.__code__.co_filename).resolve() == guard_file]
-    return guards[0] if len(guards) == 1 else None
-
-
 class _OwnerSetup:
-    HOST_SETTINGS = ('draft_job_id', 'harvest_workflow_enabled', 'runtime_probe_enabled')
-
-    def _loaded(self):
-        guard = _draft_guard()
-        probe = sys.modules.get(guard.func.__globals__['__package__'] + '.runtime_probe') if guard else None
-        if guard is None or probe is None:
-            raise ValueError('the Wiki Automation guard is not loaded in this Hermes process; restart the background service from Review')
-        return guard.args[0], probe._LOADED_CODE_HASH
-
     def plan(self, binding):
-        from cron.jobs import get_job
-        ctx, code_hash = self._loaded()
         paths = _engine_paths()
         settings = json.loads(paths.settings_path.read_bytes())
-        job_id = (settings.get('jobs') or {}).get('session_harvest')
-        job = get_job(job_id) if isinstance(job_id, str) and job_id else None
-        if not job or job.get('no_agent') or set(job.get('enabled_toolsets') or []) != {'wiki_draft', 'no_mcp'}:
-            return {'ok': False, 'reason': 'The Session Harvest job is missing or not limited to the wiki drafting '
-                    'tools; repair the engine installation in Nexus first.'}
-        host = {key: ctx.get_config(key, None) for key in self.HOST_SETTINGS}
-        pinned = (settings.get('owner_approval_runtime') or {}).get('loaded_code_hash')
-        bound = settings.get('owner_approval_owner') == binding
-        active = (bound and pinned == code_hash and host == {'draft_job_id': job_id, 'harvest_workflow_enabled': True,
-                  'runtime_probe_enabled': True} and all(settings.get(key) is True for key in
-                  ('owner_approval_enabled', 'owner_publication_enabled', 'harvest_workflow_enabled')))
-        schedule = job.get('schedule') or {}
-        identity = {'binding': binding, 'loaded_code_hash': code_hash, 'job_id': job_id,
-                    'engine': str(paths.engine_dir), 'settings': str(paths.settings_path)}
+        active = (settings.get('owner_approval_owner') == binding and all(settings.get(key) is True
+                  for key in ('owner_approval_enabled', 'owner_publication_enabled')))
+        identity = {'binding': binding, 'engine': str(paths.engine_dir), 'settings': str(paths.settings_path)}
         return {'ok': True, 'active': active, 'ready': bool(active and _owner_ready()),
-                'code_changed': bool(bound and pinned and pinned != code_hash),
                 'owner': binding['mode'] if binding['mode'] == 'local_owner'
                     else f"{binding['provider']}:{binding['user_id']}",
-                'job': {'id': job_id, 'name': str(job.get('name') or ''),
-                        'schedule': str(schedule.get('display') or schedule.get('expr') or '')},
-                'loaded_code_hash': code_hash,
                 'plan_digest': hashlib.sha256(json.dumps(identity, sort_keys=True).encode('utf-8')).hexdigest()}
-
-    def apply(self, plan):
-        ctx, code_hash = self._loaded()
-        if code_hash != plan['loaded_code_hash']:
-            raise ValueError('the loaded Wiki Automation code changed during setup; review it again')
-        for key, value in zip(self.HOST_SETTINGS, (plan['job']['id'], True, True)):
-            ctx.set_config(key, value)
 
 
 def _owner_ready():
-    import secrets
-    from gateway.control_socket import identify_gateway
-    from tools.process_registry import restart_safe_gateway_child_argv
-    from hermes_cli.config import load_config_readonly
     try:
         paths = _engine_paths()
-        identity = paths.code_identity()
-        if identity is None:
+        if paths.code_identity() is None:
             return False
-        cfg = load_config_readonly()
-        if (cfg.get('cron') or {}).get('provider') not in (None, '', 'builtin', 'in-process', 'inprocess'):
-            return False
-        dispatch = restart_safe_gateway_child_argv([sys.executable, '-c', 'pass'],
-            unit_suffix='wiki-security-verification', require_restart_safe_scope=True)
-        if dispatch.mode != 'in_process':
-            return False
-        expected = (json.loads(paths.settings_path.read_bytes()).get('owner_approval_runtime') or {}).get('loaded_code_hash')
-        if not isinstance(expected, str) or not re.fullmatch('[0-9a-f]{64}', expected):
-            return False
-        peer = identify_gateway(paths.home, timeout=1)
-        if not peer or type(peer.get('pid')) is not int or peer['pid'] <= 0 or not isinstance(peer.get('hermes_home'), str):
-            return False
-        if not peer['hermes_home'] or Path(peer['hermes_home']).resolve() != paths.home:
-            return False
-        guard = _draft_guard()
-        if guard is None:
-            return False
-        if not guard.func.__globals__['approval_runtime_ready']():
-            return False
-        loaded = sys.modules.get(guard.func.__globals__['__package__'] + '.runtime_probe')
-        if loaded is None:
-            return False
-        proof = loaded.probe(guard.args[0], secrets.token_hex(32), paths=paths)
-        if proof['loaded_code_hash'] != expected or proof['veto_exercised'] is not True or proof['handler_reached'] is not False:
-            return False
-        if proof.get('engine_identity') != identity:
-            return False
-        if peer['pid'] != os.getpid():
-            package = guard.func.__globals__['__package__']
-            channel = sys.modules.get(package + '.runtime_channel')
-            if channel is None or guard.args[0].get_config('runtime_probe_enabled', False) is not True:
-                return False
-            channel.query_peer(paths.home, peer['pid'], expected, guard.args[0].get_config('draft_job_id', None), expected_engine=identity)
-        return True
-    except (OSError, RuntimeError, ValueError, KeyError, AttributeError, TypeError, ImportError):
+        settings = json.loads(paths.settings_path.read_bytes())
+        return all(settings.get(key) is True for key in ('owner_approval_enabled', 'owner_publication_enabled'))
+    except (OSError, ValueError, TypeError, AttributeError):
         return False
 
 
@@ -2892,20 +2841,19 @@ def _selftest() -> int:
             if harvest_status().get("ok") is not False:
                 problems.append("harvest status accepted a missing engine")
             harvest_script = fake_audit / "wiki_session_harvest.py"
+            night_script = fake_audit / "harvest_night.py"
             status_output = ("hermes      on  found cursor=2026-10-05T21:00:00+03:00\n"
                              "codex       off NOT FOUND cursor=none (first run looks back 3 days)\n")
-            def status_engine(last_run):
-                return ("import sys\nassert sys.dont_write_bytecode is True\n"
-                        f"if sys.argv[1:] == ['--last-run']:\n{last_run}\n"
-                        "else:\n    assert sys.argv[1:] == ['--status']\n"
-                        f"    print({status_output!r}, end='')\n")
-            old_engine = ("    sys.stderr.write('usage: wiki_session_harvest.py\\nerror: unrecognized arguments: "
-                          "--last-run\\n')\n    sys.exit(2)")
-            status_script = status_engine(old_engine)
+            status_script = ("import sys\nassert sys.dont_write_bytecode is True\n"
+                             "assert sys.argv[1:] == ['--status']\n"
+                             f"print({status_output!r}, end='')\n")
+            older_night = ("import sys\nprint('{\"ok\": false, \"error\": \"harvest_night.py takes no arguments "
+                           "(got \\'--status\\')\"}')\nsys.exit(1)\n")
             harvest_script.write_text(status_script, encoding="utf-8")
+            night_script.write_text(older_night, encoding="utf-8")
             status = harvest_status()
-            if status.get("last_run_supported") is not False or status.get("last_run") is not None:
-                problems.append(f"harvest status did not report an engine without --last-run: {status}")
+            if status.get("last_night_supported") is not False or status.get("last_night") is not None:
+                problems.append(f"harvest status did not report an engine without the night status: {status}")
             if status.get("ok") is not True or status.get("agents") != [
                 {"id": "hermes", "enabled": True, "found": True,
                  "cursor": "2026-10-05T21:00:00+03:00"},
@@ -2914,32 +2862,40 @@ def _selftest() -> int:
             ]:
                 problems.append(f"harvest status did not preserve engine adapter state: {status}")
             if harvest_script.read_text(encoding="utf-8") != status_script \
-                    or set(fake_audit.iterdir()) != {harvest_script}:
+                    or set(fake_audit.iterdir()) != {harvest_script, night_script}:
                 problems.append("harvest status wrote files")
-            row = {"ok": True, "run": "20261018-200224-bf54f97515cf", "execution_id": "e1", "job_id": "j1",
-                   "created": "2026-10-18T20:02:24+03:00", "committed": False, "status": None,
-                   "agents": {"hermes": "114 conversation(s)", "codex": "not found (fixture)"}}
-            cases = [("    print('{\"ok\": true, \"run\": null}')", True, None),
-                     (f"    print({json.dumps(row)!r})", True, {**{key: row[key] for key in (
-                         "run", "execution_id", "created", "committed", "status", "agents")},
-                         "stop_reason": None, "cost_usd": None}),
-                     (f"    print({json.dumps({**row, 'stop_reason': {'code': 'unread_input', 'detail': 'one input'}, 'usage': {'cost_usd': 0.5}})!r})",
-                      True, {**{key: row[key] for key in ("run", "execution_id", "created", "committed", "status", "agents")},
-                             "stop_reason": {"code": "unread_input", "detail": "one input"}, "cost_usd": 0.5}),
-                     ("    print('{\"ok\": false, \"error\": \"Run r2 has an unreadable run.json\"}')\n    sys.exit(1)",
-                      False, "Run r2 has an unreadable run.json"),
-                     ("    print('{\"ok\": true}')", False, "unsupported"),
-                     (f"    print({json.dumps({**row, 'committed': 'no'})!r})", False, "unsupported"),
-                     (f"    print({json.dumps({**row, 'agents': {'hermes': 3}})!r})", False, "unsupported")]
+            agents = [{"id": "hermes", "enabled": True, "found": True, "cursor": "2026-10-27T21:00:34+03:00"},
+                      {"id": "codex", "enabled": True, "found": False, "cursor": "2026-10-27T21:00:34+03:00"}]
+            night = {"ok": True, "night": "20261027-213034-957192a75325", "started": "2026-10-27T21:30:34+03:00",
+                     "finished": "2026-10-27T22:13:10+03:00", "cost_usd": 8.155, "stopped": "time limit reached",
+                     "agents": {"hermes": "18 conversation(s)", "codex": "not found (fixture)"},
+                     "merge": {"candidates": [{}, {}], "cost_usd": 6.5}, "read": {"cost_usd": 1.6}}
+            shown = {key: night[key] for key in ("night", "started", "finished", "ok", "stopped", "cost_usd", "agents")}
+            cases = [({"ok": True, "agents": agents, "last_night": None}, True, None),
+                     ({"ok": True, "agents": agents, "last_night": night}, True, {**shown, "error": None, "drafts": 2}),
+                     ({"ok": True, "agents": agents, "last_night": {**night, "ok": False, "error": "merge failed",
+                                                                    "merge": None, "stopped": None}},
+                      True, {**shown, "ok": False, "error": "merge failed", "stopped": None, "drafts": 0}),
+                     ({"ok": True, "agents": agents, "last_night": {**night, "cost_usd": "8"}}, False, "night format"),
+                     ({"ok": True, "agents": agents, "last_night": {**night, "agents": {"hermes": 3}}}, False,
+                      "night format"),
+                     ({"ok": True, "agents": agents + agents[:1], "last_night": None}, False, "unsupported"),
+                     ({"ok": True, "agents": [], "last_night": None}, False, "no adapters"),
+                     ({"ok": True, "agents": [{**agents[0], "found": "yes"}], "last_night": None}, False, "unsupported")]
             for body, ok, expected in cases:
-                harvest_script.write_text(status_engine(body), encoding="utf-8")
+                night_script.write_text(f"import sys\nassert sys.argv[1:] == ['--status']\nprint({json.dumps(body)!r})\n",
+                                        encoding="utf-8")
                 seen = harvest_status()
-                if ok and (seen.get("ok") is not True or seen.get("last_run_supported") is not True
-                           or seen.get("last_run") != expected or len(seen.get("agents") or []) != 2):
-                    problems.append(f"harvest status lost the last run {body!r}: {seen}")
+                if ok and (seen.get("ok") is not True or seen.get("last_night_supported") is not True
+                           or seen.get("last_night") != expected or seen.get("agents") != body["agents"]):
+                    problems.append(f"harvest status lost the last night {body!r}: {seen}")
                 if not ok and (seen.get("ok") is not False or expected not in str(seen.get("error"))):
-                    problems.append(f"harvest status accepted a broken last run {body!r}: {seen}")
-            harvest_script.write_text(status_script, encoding="utf-8")
+                    problems.append(f"harvest status accepted a broken night status {body!r}: {seen}")
+            night_script.write_text("import sys\nprint('{\"ok\": false, \"error\": \"ledger unreadable\"}')\n"
+                                    "sys.exit(1)\n", encoding="utf-8")
+            if "ledger unreadable" not in str(harvest_status().get("error")):
+                problems.append("harvest status lost the engine's own night status error")
+            night_script.unlink()
             for malformed in ("", "engine changed its protocol", status_output + "unexpected\n",
                               status_output + status_output):
                 harvest_script.write_text(f"print({malformed!r})\n", encoding="utf-8")
@@ -3129,24 +3085,23 @@ def _selftest() -> int:
                    "schedule_key": role, "default_schedule": "0 9 * * *", "description": f"{name} prompt"}
             for role, name in (("autocommit", "Wiki Auto-Commit"), ("ingest_watch", "Wiki Ingest Watch"),
                                ("watchdog", "Watch Dog"))}}
-        engine_jobs["jobs"]["session_harvest"] = {
-            "name": "Wiki Session Harvest", "kind": "agent", "launcher": "launch_harvest.py",
-            "impl": "session_harvest.py", "prompt_file": "harvest_prompt.md", "schedule_key": "session_harvest",
-            "default_schedule": "30 21 * * *", "description": "agent job"}
+        engine_jobs["jobs"]["harvest_night"] = {
+            "name": "Wiki Harvest", "kind": "script", "launcher": "launch_harvest_night.py",
+            "impl": "harvest_night.py", "schedule_key": "harvest_night",
+            "default_schedule": "30 21 * * *", "description": "Wiki Harvest prompt"}
+        engine_jobs["retired"] = {"session_harvest": {"name": "Wiki Session Harvest", "launcher": "launch_harvest.py"}}
         (engine / "jobs.json").write_text(json.dumps(engine_jobs), encoding="utf-8")
         (engine / "settings.json").write_text(json.dumps({"deliver": "ntfy"}), encoding="utf-8")
         os.environ["LLMWIKI_AUDIT_DIR"] = str(engine)
         cat = _job_catalogue()
-        if set(cat) != {"autocommit", "ingest_watch", "watchdog", "session_harvest"}:
-            problems.append(f"the engine job definition is not the four roles: {sorted(cat)}")
+        if set(cat) != {"autocommit", "ingest_watch", "watchdog", "harvest_night"}:
+            problems.append(f"the engine job definition is not the four roles (a retired role was listed?): {sorted(cat)}")
         for role, meta in cat.items():
             for field in ("name", "launcher", "impl", "deliver", "kind"):
                 if not meta.get(field):
                     problems.append(f"engine role {role!r} has no {field}")
             if meta.get("kind") == "script" and meta.get("prompt") != f"{meta.get('name')} prompt":
                 problems.append(f"a script job's prompt is not the engine description: {role}")
-        if cat.get("session_harvest", {}).get("kind") != "agent" or cat["session_harvest"].get("prompt"):
-            problems.append("the agent job is not read as an agent job")
         if cat.get("autocommit", {}).get("deliver") != "ntfy":
             problems.append("deliver does not come from the engine settings")
         native = subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s",
@@ -3188,12 +3143,12 @@ def _selftest() -> int:
         del os.environ["LLMWIKI_AUDIT_DIR"]
         if (Path(__file__).resolve().parent / "job_catalogue.json").exists():
             problems.append("the plugin keeps its own job catalogue beside the engine definition")
-        real_jobs = Path.home() / ".llmwiki-audit" / "jobs.json"
+        real_jobs = Path(__file__).resolve().parents[1] / "engine" / "jobs.json"
         if real_jobs.exists():
             os.environ["LLMWIKI_AUDIT_DIR"] = str(real_jobs.parent)
             live_cat = _job_catalogue()
             del os.environ["LLMWIKI_AUDIT_DIR"]
-            if not {"autocommit", "ingest_watch", "watchdog", "session_harvest"} <= set(live_cat):
+            if not {"autocommit", "ingest_watch", "watchdog", "harvest_night"} <= set(live_cat):
                 problems.append(f"the engine's own jobs.json does not give the four roles: {sorted(live_cat)}")
         if not (first.get("error_preview") or "").startswith("boom"):
             problems.append("error preview did not arrive")

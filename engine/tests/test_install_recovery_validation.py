@@ -355,7 +355,7 @@ class NativeRoleTests(unittest.TestCase):
                 self.assertEqual(steps['job-snapshot-' + role], {'job_snapshot': job})
             self.assertEqual(install.validate_installation_recovery(plan, plan['digest'])['state'], 'applied')
 
-    def test_marked_script_interpreter_workdir_and_agent_prompt_origin_drift_refuse_without_repair(self):
+    def test_marked_script_interpreter_workdir_prompt_and_origin_drift_refuse_without_repair(self):
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as temp:
             base = Path(temp)
             for role, field, value in (
@@ -365,8 +365,8 @@ class NativeRoleTests(unittest.TestCase):
                     ('watchdog', 'enabled', True),
                     ('watchdog', 'schedule', {'kind': 'cron', 'expr': '13 7 * * *', 'display': '13 7 * * *'}),
                     ('watchdog', 'origin', {'engine_installation': 'f' * 64, 'engine_role': 'watchdog'}),
-                    ('session_harvest', 'prompt', 'Unapproved owner prompt'),
-                    ('session_harvest', 'origin', None)):
+                    ('harvest_night', 'interpreter', 'Z:/unapproved/python.exe'),
+                    ('harvest_night', 'origin', None)):
                 with self.subTest(role=role, field=field):
                     home = base / (role + field)
                     home.mkdir()

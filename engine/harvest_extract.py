@@ -16,6 +16,7 @@ from Hermes' own session store by the session id the quiet footer prints.
 import hashlib
 import json
 import re
+import sqlite3
 import subprocess
 import tempfile
 from pathlib import Path
@@ -26,6 +27,8 @@ CONTEXT_TURNS = 3
 MIN_QUOTE = 12
 TURN = re.compile(r'^### (user|assistant) · ', re.M)
 SESSION = re.compile(r'^session_id:\s*(\S+)\s*$', re.M)
+USAGE_COLUMNS = ('model', 'ended_at', 'end_reason', 'input_tokens', 'output_tokens', 'cache_read_tokens',
+                 'cache_write_tokens', 'estimated_cost_usd', 'actual_cost_usd', 'cost_status')
 
 SCHEMA = """Return JSON only, no prose and no code fence:
 {"items": [{"type": "decision|finding|process|article_signal", "claim": "...", "quote": "...",
@@ -317,10 +320,38 @@ def session_id_from(stderr):
     return found[-1] if found else None
 
 
+def usage(home, session_id):
+    """Hermes' own token and cost figures for one chat session; an error is reported, not guessed."""
+    if not session_id:
+        return None
+    if not home:
+        return {'error': 'The owning profile is not configured, so cost cannot be read'}
+    database = Path(home) / 'state.db'
+    if not database.is_file():
+        return {'error': 'The profile session store is missing, so cost cannot be read'}
+    try:
+        connection = sqlite3.connect(f'{database.resolve().as_uri()}?mode=ro', uri=True, timeout=5)
+        try:
+            present = {row[1] for row in connection.execute('PRAGMA table_info(sessions)')}
+            columns = [name for name in USAGE_COLUMNS if name in present]
+            row = connection.execute(f'SELECT {", ".join(columns)} FROM sessions WHERE id = ?', (session_id,)).fetchone()
+        finally:
+            connection.close()
+    except sqlite3.Error as exc:
+        return {'error': f'The profile session store could not be read: {exc}'}
+    if row is None:
+        return {'error': 'The chat session is not in the profile session store'}
+    found = dict(zip(columns, row))
+    actual = found.get('actual_cost_usd')
+    return {'model': found.get('model'), 'ended': found.get('ended_at') is not None, 'end_reason': found.get('end_reason'),
+            'input_tokens': found.get('input_tokens'), 'output_tokens': found.get('output_tokens'),
+            'cache_read_tokens': found.get('cache_read_tokens'), 'cache_write_tokens': found.get('cache_write_tokens'),
+            'cost_usd': actual if actual is not None else found.get('estimated_cost_usd'),
+            'cost_status': 'actual' if actual is not None else found.get('cost_status')}
+
+
 def hermes_caller(hermes, model, provider, home, timeout=900):
     """A caller that runs one Hermes chat turn per prompt and reads its cost from the session store."""
-    from harvest_attempts import usage
-
     def call(prompt):
         with tempfile.TemporaryDirectory() as folder:
             prompt_file = Path(folder) / 'prompt.md'

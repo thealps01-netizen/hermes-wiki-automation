@@ -24,7 +24,6 @@ SOURCE = ('# Fixture\n\n## Decisions\n\n**1. Fixture.**\nWhy: owner.\nEvidence: 
 
 class EvidenceRequestTests(unittest.TestCase):
     def setUp(self):
-        import draft_adapter
         self.temp = tempfile.TemporaryDirectory(dir=os.environ['TMPDIR'])
         root = Path(self.temp.name)
         self.wiki, self.inbox = root / 'wiki', root / 'data/inbox'
@@ -34,13 +33,15 @@ class EvidenceRequestTests(unittest.TestCase):
         (self.wiki / 'raw/evidence').mkdir(parents=True)
         self.run = self.inbox / 'fixture-run'
         self.run.mkdir(parents=True)
-        (self.run / 'run.json').write_text(json.dumps({'execution_id': 'execution', 'job_id': 'job', 'project_id': 'fixture'}))
-        self.adapter = draft_adapter.DraftAdapter(self.wiki, self.inbox, 'fixture-run', 'execution', 'job')
         self.metadata = dict(kind='new', target='2026-10-20-fixture.md', summary='Fixture', why='Owner choice',
                              evidence_ids=['fixture-pin-code'], evidence_requests=[REQUEST])
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def submit(self, name, metadata, source):
+        from test_draft_adapter import submit
+        return submit(self.wiki, self.run, name, metadata, source)
 
     def files(self):
         root = Path(self.temp.name)
@@ -74,7 +75,7 @@ class EvidenceRequestTests(unittest.TestCase):
 
     def test_a_finding_with_a_request_is_drafted_and_waits_for_the_owner_fetch(self):
         import wiki_candidates
-        ref = self.adapter.submit('fixture', self.metadata, SOURCE)
+        ref = self.submit('fixture', self.metadata, SOURCE)
         stored = json.loads((self.run / 'candidates/fixture/candidate.json').read_bytes())
         self.assertEqual(stored['evidence_requests'], [REQUEST])
         snapshot = wiki_candidates.review_snapshot(self.wiki, self.inbox, ref)
@@ -85,7 +86,7 @@ class EvidenceRequestTests(unittest.TestCase):
 
     def test_the_owner_fetch_stores_the_verified_copy_and_approval_then_passes(self):
         import wiki_candidates
-        ref = self.adapter.submit('fixture', self.metadata, SOURCE)
+        ref = self.submit('fixture', self.metadata, SOURCE)
         before = wiki_candidates.review_snapshot(self.wiki, self.inbox, ref)
         calls, result = self.fetch(before['review_digest'])
         self.assertTrue(result['ok'], result)
@@ -106,7 +107,7 @@ class EvidenceRequestTests(unittest.TestCase):
 
     def test_a_passage_missing_from_the_downloaded_file_writes_nothing(self):
         import wiki_candidates
-        ref = self.adapter.submit('fixture', self.metadata, SOURCE)
+        ref = self.submit('fixture', self.metadata, SOURCE)
         digest = wiki_candidates.review_snapshot(self.wiki, self.inbox, ref)['review_digest']
         before = self.files()
         _, result = self.fetch(digest, code=b'def plan():\n    return ["everything"]\n')
@@ -117,7 +118,7 @@ class EvidenceRequestTests(unittest.TestCase):
 
     def test_an_id_that_entered_the_wiki_after_drafting_is_not_fetched_over(self):
         import wiki_candidates
-        ref = self.adapter.submit('fixture', self.metadata, SOURCE)
+        ref = self.submit('fixture', self.metadata, SOURCE)
         digest = wiki_candidates.review_snapshot(self.wiki, self.inbox, ref)['review_digest']
         (self.wiki / 'raw/evidence/fixture-pin-code').mkdir()
         with self.assertRaisesRegex(wiki_candidates.Refused, 'already exists'):
@@ -126,7 +127,7 @@ class EvidenceRequestTests(unittest.TestCase):
 
     def test_a_fetch_needs_the_digest_of_the_displayed_review(self):
         import wiki_candidates
-        self.adapter.submit('fixture', self.metadata, SOURCE)
+        self.submit('fixture', self.metadata, SOURCE)
         for digest in ('0' * 64, 'not-a-digest', None):
             with self.subTest(digest=digest):
                 calls, stack, patches = self.network()
@@ -167,7 +168,7 @@ class EvidenceRequestTests(unittest.TestCase):
         for label, (fields, source) in cases.items():
             with self.subTest(label):
                 with self.assertRaises(draft_adapter.DraftRefused):
-                    self.adapter.submit('fixture', {**self.metadata, **fields}, source)
+                    self.submit('fixture', {**self.metadata, **fields}, source)
         self.assertEqual(self.files(), before)
         self.assertFalse((self.run / 'candidates').exists())
 
@@ -186,7 +187,7 @@ class EvidenceRequestTests(unittest.TestCase):
         target.write_text(SOURCE.replace('fixture-pin-code', 'none (owner-directed)'), encoding='utf-8', newline='\n')
         base = hashlib.sha256(target.read_bytes()).hexdigest()
         with self.assertRaisesRegex(draft_adapter.DraftRefused, 'retirement'):
-            self.adapter.submit('fixture', {**self.metadata, 'kind': 'retire', 'base_sha256': base}, None)
+            self.submit('fixture', {**self.metadata, 'kind': 'retire', 'base_sha256': base}, None)
 
 
 if __name__ == '__main__':

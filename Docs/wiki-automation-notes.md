@@ -1160,9 +1160,59 @@ the merger wrote 8 drafts with 0 refusals. Cost: reading about $4.18 per million
 (127 conversations, 4.5 million characters) costs about $19 to read and is spread over the first
 nights by the cap.
 
-Wiki Session Harvest stays installed: the approval system checks that its agent job exists with
-the drafting tools (`draft_security.approval_runtime_ready`), not that it is enabled, so it can be
-paused. Wiki Harvest is created paused; the owner switches it on and pauses Wiki Session Harvest.
+Wiki Session Harvest stayed installed in 2.13.0-2.13.2, because the approval system checked that its
+agent job existed with the drafting tools. 2.13.3 removed that check and the job (see "The drafting
+job is retired (2.13.3)").
+
+## The drafting job is retired (2.13.3)
+
+Wiki Harvest replaced the Wiki Session Harvest agent job in 2.12.0, but Review still refused every
+approval unless that agent job existed with the `wiki_draft` toolset and a loaded tool veto, proven by
+a canary call and, across processes, a signed loopback challenge. The check protected against the
+drafting agent approving its own drafts. Wiki Harvest has no such agent: the model sees only the
+to-do tool and the engine writes the drafts, so the check guarded nothing and kept a paid agent job
+running beside its replacement every night.
+
+2.13.3 removes the drafting toolset, the veto, the runtime check and its loopback channel. Approval
+needs the bound owner and the two owner settings (`Docs/owner-approval.md`); the protections that
+matter are unchanged: no cron execution can approve, the session must be the owner's, and the
+approved bytes must equal the reviewed ones. `engine/jobs.json` lists the role under `retired`; the
+installer removes a job of that role when the engine settings map it and it still has an
+installation's shape, drops the role from the mapping, and never recreates it. A same-name job that
+the installation does not map is the owner's and is left alone.
+
+The Harvest card follows Wiki Harvest (2.13.3). Until 2.13.2 the card looked for the `session_harvest`
+role and read its last run from the retired agent's `inbox/<run>/run.json` (`wiki_session_harvest.py
+--last-run`); with that job removed it would have read "Not created". It also showed each source's
+cursor from `harvest-state.json`, which only the retired job moved: on the owner's PC Hermes read
+"up to 22 Oct" while Wiki Harvest had collected up to 27 Oct. Now `harvest_night.py --status` (read
+only) gives every source with the ledger's `collected_until` and the newest `night.json`, which
+each night writes beside its replies with `started`, `finished` and the whole cost. The card pairs a
+night with the cron run it started in (within two minutes of the run's start), so an older night never
+lends its drafts or cost to the newest run. A night that stops at its cost or time limit is not a
+failure: the card shows "stopped: <reason>" and the rest waits in the ledger. A failure is the cron
+run's own error (the script exits 1). A source the last night reported "not found" counts as missing.
+An engine older than the night status falls back to the old `--status` lines with no night. The
+"a missing folder stops every line" alert went with the retired job: Wiki Harvest skips that source.
+
+The engine side of the retired job went too (2.13.3). `wiki_session_harvest.py` kept only its
+conversation readers, `render` and the read-only `load_state` for the old cursors that a first Wiki
+Harvest night starts from; its collector, `--commit`, `--host-outcome`, `--record-attempt`,
+`--last-run`, `--runs` and `--status` are gone with `finish_run` and the run packing. `draft_adapter.py`
+kept `check_draft` and `store_draft`, which the merger and the source cleanup use; the agent's bounded
+read/submit facade went. `harvest_attempts.py` went; its cost reader moved into `harvest_extract.py`,
+the one caller left. The reader tests (unreadable Codex, Claude and Antigravity history, decode loss, a
+missing folder, user text never clipped) moved to `test_session_harvest.py`, and the "a missing or
+unreadable source is named while the others are read" cases to `test_harvest_pipeline.py`. The
+command-line installer (`python install.py` without a plan) now removes a retired job under the same
+rule as the panel's installation and drops its mapping; a failed removal keeps the mapping and is
+reported. `harvest_prompt.md` still names the retired job's tools: the merger cuts its rule sections
+at run time and tells the model those tool names do not apply, so editing it changes what the paid
+merge model reads and is left for a measured change.
+
+The panel self-test's live check of the job roles now reads `engine/jobs.json` beside the panel. It
+read `~/.llmwiki-audit/jobs.json`, a data folder that on the owner's PC still held a September copy
+listing the retired role, so the check tested old roles instead of the shipped ones.
 
 ## Settings shows everything (2.12.0)
 

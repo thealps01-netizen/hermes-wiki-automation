@@ -181,16 +181,14 @@ def _checked_binding(binding, home: Path) -> dict:
 
 
 def activate(settings_path: Path, home: Path, payload: dict) -> dict:
-    """Explicit owner setup: bind the profile owner, pin the loaded guard code, turn on owner
-    publication and native harvest, and create the authority if it is absent. Re-running it after
-    a plugin update replaces the pinned code hash and keeps the existing authority."""
+    """Explicit owner setup: bind the profile owner, turn on owner approval and publication, and
+    create the authority if it is absent. Re-running it keeps the existing authority. Keys left by the
+    retired drafting job's runtime check are dropped."""
     import os
     home = Path(home).resolve()
-    if not isinstance(payload, dict) or set(payload) != {'binding', 'loaded_code_hash'}:
-        raise DecisionRefused('Activation accepts only the owner binding and the loaded code hash')
+    if not isinstance(payload, dict) or set(payload) != {'binding'}:
+        raise DecisionRefused('Activation accepts only the owner binding')
     binding = _checked_binding(payload['binding'], home)
-    if not digest_string(payload['loaded_code_hash']):
-        raise DecisionRefused('Loaded code hash must be a lowercase SHA-256 digest')
     settings_path = Path(settings_path)
     settings = json.loads(settings_path.read_bytes())
     if not isinstance(settings, dict) or not settings.get('hermes_home') or Path(settings['hermes_home']).resolve() != home:
@@ -200,9 +198,10 @@ def activate(settings_path: Path, home: Path, payload: dict) -> dict:
         raise DecisionRefused('Configured engine data root is absent')
     with OwnerDecisions(data, initialize=True):
         pass
+    for key in ('owner_approval_runtime', 'harvest_workflow_enabled'):
+        settings.pop(key, None)
     settings.update({'owner_approval_enabled': True, 'owner_publication_enabled': True,
-                     'harvest_workflow_enabled': True, 'owner_approval_owner': binding,
-                     'owner_approval_runtime': {'loaded_code_hash': payload['loaded_code_hash']}})
+                     'owner_approval_owner': binding})
     staged = settings_path.with_name(settings_path.name + '.activate.tmp')
     staged.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
     os.replace(staged, settings_path)

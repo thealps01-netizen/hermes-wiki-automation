@@ -158,13 +158,15 @@ class OwnerDecisionTests(unittest.TestCase):
             (wiki / '.llm-wiki/project.json').write_text('{"id":"activation-fixture"}')
             settings_path = Path(tmp) / 'settings.json'
             original = {'hermes_home': str(home), 'audit_dir': str(data), 'project_root': str(wiki),
-                        'project_id': 'activation-fixture', 'jobs': {'session_harvest': 'job'}}
+                        'project_id': 'activation-fixture', 'jobs': {'harvest_night': 'job'},
+                        # Left behind by 2.13.2 and earlier; activation drops them.
+                        'harvest_workflow_enabled': True, 'owner_approval_runtime': {'loaded_code_hash': 'b' * 64}}
             settings_path.write_text(json.dumps(original), encoding='utf-8')
             local = {'mode': 'local_owner', 'home': str(home)}
-            payload = {'binding': local, 'loaded_code_hash': 'b' * 64}
+            payload = {'binding': local}
             refused = (
                 {**payload, 'extra': True},
-                {**payload, 'loaded_code_hash': 'B' * 64},
+                {**payload, 'loaded_code_hash': 'b' * 64},
                 {**payload, 'binding': {**local, 'home': str(Path(tmp) / 'other')}},
                 {**payload, 'binding': {**local, 'provider': 'x'}},
                 {**payload, 'binding': {'mode': 'interactive_owner', 'home': str(home), 'provider': 'p',
@@ -181,17 +183,18 @@ class OwnerDecisionTests(unittest.TestCase):
 
             self.assertEqual(owner_decisions.activate(settings_path, home, payload), {'ok': True, 'activated': True})
             saved = json.loads(settings_path.read_text(encoding='utf-8'))
-            self.assertEqual(saved, {**original, 'owner_approval_enabled': True, 'owner_publication_enabled': True,
-                'harvest_workflow_enabled': True, 'owner_approval_owner': local,
-                'owner_approval_runtime': {'loaded_code_hash': 'b' * 64}})
+            expected = {key: value for key, value in original.items()
+                        if key not in ('harvest_workflow_enabled', 'owner_approval_runtime')}
+            self.assertEqual(saved, {**expected, 'owner_approval_enabled': True, 'owner_publication_enabled': True,
+                'owner_approval_owner': local})
             with owner_decisions.OwnerDecisions(data) as store:
                 issuer = store.issuer
-            # Re-activation after a plugin update replaces the pinned code and keeps the authority.
+            # Re-activation for another owner replaces the binding and keeps the authority.
             remote = {'mode': 'interactive_owner', 'home': str(home), 'provider': 'p', 'user_id': 'u', 'org_id': None}
-            owner_decisions.activate(settings_path, home, {'binding': remote, 'loaded_code_hash': 'c' * 64})
+            owner_decisions.activate(settings_path, home, {'binding': remote})
             saved = json.loads(settings_path.read_text(encoding='utf-8'))
-            self.assertEqual((saved['owner_approval_owner'], saved['owner_approval_runtime']),
-                             (remote, {'loaded_code_hash': 'c' * 64}))
+            self.assertEqual(saved['owner_approval_owner'], remote)
+            self.assertNotIn('owner_approval_runtime', saved)
             with owner_decisions.OwnerDecisions(data) as store:
                 self.assertEqual(store.issuer, issuer)
             self.assertEqual(owner_decisions.broker_command('recoverable', saved, home,

@@ -279,32 +279,16 @@ class JobOwnershipTests(unittest.TestCase):
             for token in reversed(tokens):
                 reset_hermes_home_override(token)
 
-    def test_agent_role_remains_readable_without_weakening_runtime_toolsets(self):
-        jid = self.mapping['session_harvest']
-        original = jobs.get_job(jid)
-        owner = self.settings.read_bytes()
+    def test_retired_drafting_role_is_neither_listed_nor_creatable(self):
+        self.assertNotIn('session_harvest', self.mapping)
+        self.assertTrue(all(job['no_agent'] for job in jobs.list_jobs(include_disabled=True)), 'an agent job was installed')
         before = (self.home / 'cron/jobs.json').read_bytes()
         view = self.api.jobs_view_route()
         self.assertTrue(view['ok'], view)
-        row = next(row for row in view['roles'] if row['role'] == 'session_harvest')
-        self.assertEqual((row['id'], row['kind']), (jid, 'agent'))
-        for action in ('create', 'remove'):
-            result = self.act(action, role='session_harvest')
-            self.assertFalse(result['ok'], result)
-            self.assertEqual(jobs.get_job(jid), original)
-            self.assertEqual((self.home / 'cron/jobs.json').read_bytes(), before)
-        self.assertEqual(self.settings.read_bytes(), owner)
-        resumed = self.act('resume', role='session_harvest')
-        self.assertTrue(resumed['ok'], resumed)
-        record = jobs.get_job(jid)
-        self.assertTrue(record['enabled'])
-        self.assertEqual(set(record['enabled_toolsets']), {'wiki_draft', 'no_mcp'})
-        self.assertEqual(record['prompt'], original['prompt'])
-        self.assertTrue(self.api.jobs_view_route()['ok'], 'Resumed drafting job lost its role label')
-        paused = self.act('pause', role='session_harvest')
-        self.assertTrue(paused['ok'], paused)
-        self.assertEqual(jobs.effective_job_state(jobs.get_job(jid)), 'paused')
-        self.assertEqual(self.settings.read_bytes(), owner)
+        self.assertNotIn('session_harvest', {row['role'] for row in view['roles']})
+        for action in ('create', 'resume'):
+            self.assertFalse(self.act(action, role='session_harvest')['ok'])
+        self.assertEqual((self.home / 'cron/jobs.json').read_bytes(), before)
 
     def test_remove_confirmation_and_invalid_schedules_do_not_mutate(self):
         before = (self.home / 'cron/jobs.json').read_bytes()

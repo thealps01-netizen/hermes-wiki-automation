@@ -19,6 +19,7 @@ BARE_FINDING = WITHOUT_NUMBER + '\n## Findings\n\n**F1. Tool renders 8 angles.**
 class ApprovalChecksAtDraftAndReview(unittest.TestCase):
     tearDown = base.EvidenceRequestTests.tearDown
     files = base.EvidenceRequestTests.files
+    submit = base.EvidenceRequestTests.submit
     approve_dry = base.EvidenceRequestTests.approve_dry
 
     def setUp(self):
@@ -39,13 +40,13 @@ class ApprovalChecksAtDraftAndReview(unittest.TestCase):
                                   (BARE_FINDING, 'no retained evidence', 'Tool renders 8 angles')):
             with self.subTest(rule=rule):
                 with self.assertRaisesRegex(draft_adapter.DraftRefused, rule) as caught:
-                    self.adapter.submit('fixture', self.plain, text)
+                    self.submit('fixture', self.plain, text)
                 self.assertIn('fix it and submit again', str(caught.exception))
                 self.assertIn(named, str(caught.exception))
         self.assertEqual(self.files(), before)
 
     def test_the_same_decision_without_the_release_number_is_drafted_and_approvable(self):
-        ref = self.adapter.submit('fixture', self.plain, WITHOUT_NUMBER)
+        ref = self.submit('fixture', self.plain, WITHOUT_NUMBER)
         shown = self.show(ref)
         self.assertIsNone(shown['approval_refusal'])
         self.assertEqual(self.approve_dry()[0], 0)
@@ -62,7 +63,7 @@ class ApprovalChecksAtDraftAndReview(unittest.TestCase):
         self.assertEqual(self.files(), before)
 
     def test_a_pending_request_is_the_reason_shown_until_it_is_fetched(self):
-        ref = self.adapter.submit('fixture', self.metadata, self.source_with_request())
+        ref = self.submit('fixture', self.metadata, self.source_with_request())
         self.assertIn('not fetched yet', self.show(ref)['approval_refusal'])
 
     def source_with_request(self):

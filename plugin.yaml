@@ -1,16 +1,5 @@
 name: wiki-automation
 label: Wiki Automation
-version: 2.13.2
+version: 2.13.3
 description: >-
   One Wiki workspace: Nexus automation map, Chronicle run journal, Folio source review and Health diagnostics.
-provides_tools:
-  - wiki_draft_read
-  - wiki_draft_submit
-  - wiki_security_canary
-provides_hooks:
-  - on_session_start
-  - pre_llm_call
-  - transform_llm_output
-  - post_llm_call
-  - on_session_end
-  - pre_tool_call

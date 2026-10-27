@@ -396,7 +396,7 @@ if _hm_enabled and not _hm_hooks:
 print("\n== 9) skill hedef eşitliği ==")
 SKILL_TARGET = {
     "session-to-document": {"hermes", "codex", "claude", "antigravity"},
-    "llm-wiki": {"hermes", "codex", "claude"},     # Hermes reads the ~/.agents/skills copy (external_dirs)
+    "llm-wiki-desktop": {"hermes"},  # folder ~/.agents/skills/llm-wiki; Hermes reads it via external_dirs
 }
 
 

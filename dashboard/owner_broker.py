@@ -110,12 +110,7 @@ def make_router(run, ready, owner_binding=None, activation=None):
             plan = activation.plan(binding)
             if plan.get('ok') is not True or plan.get('plan_digest') != digest:
                 return {'ok': False, 'reason': plan.get('reason') or 'The setup changed after it was shown; review it again.'}
-            result = checked_result(run('activate', {'binding': binding, 'loaded_code_hash': plan['loaded_code_hash']}),
-                                    'activate')
-            if result.get('ok') is not True:
-                return result
-            activation.apply(plan)
-            return {'ok': True, 'restart_required': True}
+            return checked_result(run('activate', {'binding': binding}), 'activate')
         except (OSError, ValueError, KeyError, TypeError) as exc:
             return {'ok': False, 'reason': f'Owner setup failed: {exc}'}
 
@@ -124,7 +119,7 @@ def make_router(run, ready, owner_binding=None, activation=None):
         binding = owner_binding() if owner_binding else None
         principal = owner_principal(request, binding)
         if not ready():
-            return {'ok': False, 'reason': 'Constrained drafting runtime is not verified; owner authority is unavailable.'}
+            return {'ok': False, 'reason': 'Owner approval is not turned on for this profile; turn it on in Review.'}
         if set(payload) - {'ref', 'review_digest', 'confirm', 'request_id'} or type(payload.get('confirm')) is not bool:
             raise HTTPException(status_code=400, detail='Unsupported owner decision fields')
         if not isinstance(payload.get('review_digest'), str) or len(payload['review_digest']) != 64:
@@ -149,7 +144,7 @@ def make_router(run, ready, owner_binding=None, activation=None):
         if set(payload) != {'request_id'} or not isinstance(request_id, str) or len(request_id) != 64 or any(ch not in '0123456789abcdef' for ch in request_id):
             raise HTTPException(status_code=400, detail='Recovery accepts only an approved request identity')
         if not ready():
-            return {'ok': False, 'reason': 'Constrained drafting runtime is not verified; recovery is unavailable.'}
+            return {'ok': False, 'reason': 'Owner approval is not turned on for this profile; recovery is unavailable.'}
         try:
             return checked_result(run('recover', {'principal': principal, 'owner_key': binding_key(binding), 'request_id': request_id}), 'recover')
         except (OSError, ValueError) as exc:
@@ -160,7 +155,7 @@ def make_router(run, ready, owner_binding=None, activation=None):
         binding = owner_binding() if owner_binding else None
         principal = owner_principal(request, binding)
         if not ready():
-            return {'ok': False, 'reason': 'Constrained drafting runtime is not verified; recovery is unavailable.'}
+            return {'ok': False, 'reason': 'Owner approval is not turned on for this profile; recovery is unavailable.'}
         try:
             return checked_result(run('recoverable', {'principal': principal, 'owner_key': binding_key(binding)}), 'recoverable')
         except (OSError, ValueError) as exc:

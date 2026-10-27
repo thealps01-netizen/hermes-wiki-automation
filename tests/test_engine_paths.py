@@ -208,14 +208,10 @@ class EnginePathsTests(unittest.TestCase):
                 self.assertFalse(api.automation()['available'])
                 self.assertEqual(spawned.call_count, 0, 'Invalid selection spawned a subprocess')
 
-    def test_runtime_proof_fingerprints_selected_code_not_mutable_data(self):
-        from hermes_constants import set_hermes_home_override, reset_hermes_home_override
-        from types import SimpleNamespace
-        spec = importlib.util.spec_from_file_location('wiki_selected_engine_probe', ROOT / '__init__.py', submodule_search_locations=[str(ROOT)])
-        native = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = native
-        spec.loader.exec_module(native)
-        probe = sys.modules[spec.name + '.runtime_probe']
+    def test_code_identity_fingerprints_selected_code_not_mutable_data(self):
+        spec = importlib.util.spec_from_file_location('wiki_selected_engine_paths', ROOT / 'engine_paths.py')
+        paths_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(paths_module)
         with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:
             home = Path(tmp)
             code, data = home / 'code', home / 'data'
@@ -227,25 +223,17 @@ class EnginePathsTests(unittest.TestCase):
             location = home / 'state/wiki-automation/location.json'
             location.parent.mkdir(parents=True)
             location.write_bytes(json.dumps({'schema': 2, 'engine_dir': str(code), 'audit_dir': str(data)}).encode())
-            token = set_hermes_home_override(home)
-            try:
-                with patch.dict(os.environ, {'LLMWIKI_AUDIT_DIR': '', 'LLMWIKI_SETTINGS': ''}):
-                    ctx = SimpleNamespace(get_config=lambda name, default=None: default)
-                    initial = probe.probe(ctx, '1' * 64)
-                    selected = initial.get('engine_identity')
-                    self.assertIsInstance(selected, dict, initial)
-                    self.assertEqual(selected['engine_dir'], str(code))
-                    self.assertEqual(selected['settings_path'], str(data / 'settings.json'))
-                    self.assertEqual(selected['audit_dir'], str(data))
-                    (data / 'draft_adapter.py').write_bytes(b'Not executable engine code')
-                    self.assertEqual(probe.probe(ctx, '2' * 64)['engine_identity'], selected)
-                    (code / 'draft_adapter.py').write_bytes((code / 'draft_adapter.py').read_bytes() + b'\n')
-                    changed = probe.probe(ctx, '3' * 64)
-                    self.assertNotEqual(changed['engine_identity']['code_hash'], selected['code_hash'])
-                    self.assertEqual(changed['loaded_code_hash'], initial['loaded_code_hash'])
-                    self.assertEqual(changed['incarnation'], initial['incarnation'])
-            finally:
-                reset_hermes_home_override(token)
+            with patch.dict(os.environ, {'LLMWIKI_AUDIT_DIR': '', 'LLMWIKI_SETTINGS': ''}):
+                selected = paths_module.resolve_engine_paths(home).code_identity()
+                self.assertIsInstance(selected, dict, selected)
+                self.assertEqual(selected['engine_dir'], str(code))
+                self.assertEqual(selected['settings_path'], str(data / 'settings.json'))
+                self.assertEqual(selected['audit_dir'], str(data))
+                (data / 'owner_decisions.py').write_bytes(b'Not executable engine code')
+                self.assertEqual(paths_module.resolve_engine_paths(home).code_identity(), selected)
+                (code / 'owner_decisions.py').write_bytes((code / 'owner_decisions.py').read_bytes() + b'\n')
+                changed = paths_module.resolve_engine_paths(home).code_identity()
+                self.assertNotEqual(changed['code_hash'], selected['code_hash'])
 
     def test_parallel_profiles_keep_context_bound_settings_in_subprocesses(self):
         from concurrent.futures import ThreadPoolExecutor

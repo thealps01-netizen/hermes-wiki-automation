@@ -3,6 +3,44 @@
 Notable changes to the Wiki Automation panel. The version is carried in three places — `plugin.yaml`,
 `dashboard/manifest.json` and the top heading below — and the static audit fails when they disagree.
 
+## 2.13.3
+
+Engine `cae09c2` (was `18a99c9`; this PC still runs `fccb365` until the panel's engine update is applied).
+
+### Changed
+* **Review approvals no longer depend on the drafting job.** Approving needs the bound owner, the two
+  owner settings (approve and publish) and the panel's own code identity; no Hermes restart, no
+  runtime check. An owner turned on before 2.13.3 stays on. `Docs/owner-approval.md` replaces
+  `Docs/draft-security.md`.
+* **The Wiki Session Harvest agent job is retired.** Wiki Harvest has done its work as a script since
+  2.12.0. `engine/jobs.json` lists the role under `retired`: the installation preview shows its job as
+  "removed: this role was retired and is not recreated", removes it only when the engine settings map
+  it and it still has an installation's shape, and drops the mapping. The command-line installer
+  follows the same rule. A same-name job the installation does not map is the owner's and stays.
+* **The Harvest card follows Wiki Harvest.** It showed the retired job ("Not created" once that job is
+  gone) and each source's old cursor, which only the retired job moved (Hermes "up to 22 Oct" while
+  Wiki Harvest had read up to 27 Oct). Each night now writes `harvest-nights/<night>/night.json` with
+  its start, end and whole cost, and `harvest_night.py --status` (read only) gives every source with the
+  ledger's reading point and the newest night. The card shows that night's drafts and why it stopped,
+  and its cost, only when the night started with the newest run. A night that stops at its cost or time
+  limit is not a failure. A source the last night could not find counts as missing. With an engine
+  older than this, the card keeps the old source lines and shows no night.
+* **The agent-setup check looks for the wiki skill by its new name, in Hermes only.** The skill is now
+  called `llm-wiki-desktop` (its folder is still `~/.agents/skills/llm-wiki`); `drift_check.py` still
+  looked for `llm-wiki` and reported "skill eksik: llm-wiki -> hermes" although Hermes loads it. It is
+  expected in Hermes only: the Antigravity copy was removed, and Codex and Claude Code are not targets. `sync_skill.py` no longer refuses the name `llm-wiki` without `--force`: that
+  guard kept two different skills of that name apart, and that name clash is gone; `--force` went with it.
+
+### Removed
+* The drafting agent's path: the `wiki_draft` toolset, its tool veto, the runtime check and its
+  loopback channel (`draft_security.py`, `harvest_runtime.py`, `runtime_probe.py`,
+  `runtime_channel.py`), the launcher `palantir_wiki_session_harvest.py`, the collector and completion
+  commands of `wiki_session_harvest.py` (it keeps the conversation readers Wiki Harvest uses), the
+  read/submit facade of `draft_adapter.py` (it keeps the draft checks and storage) and
+  `harvest_attempts.py` (its cost reader moved into `harvest_extract.py`). Nothing reads the settings
+  `draft_job_id`, `harvest_workflow_enabled` and `runtime_probe_enabled` any more; left in a config they
+  do nothing and can be deleted.
+
 ## 2.13.2
 
 Engine `18a99c9` (was `fccb365`).

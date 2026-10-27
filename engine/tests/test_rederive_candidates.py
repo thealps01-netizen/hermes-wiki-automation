@@ -11,8 +11,8 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import draft_adapter
 import wiki_candidates as candidates
+from test_draft_adapter import submit
 
 TARGET = '2026-10-06-fixture.md'
 LIVE = ('# Fixture\n\n## Scope\n\nPanels.\n\n## Decisions\n\n'
@@ -46,9 +46,7 @@ class RederiveTests(unittest.TestCase):
         self.target.write_bytes(LIVE.encode())
         run = self.inbox / '20261022-012328-run'
         run.mkdir(parents=True)
-        (run / 'run.json').write_text(json.dumps({'execution_id': 'execution', 'job_id': 'job', 'project_id': 'fixture'}))
-        adapter = draft_adapter.DraftAdapter(self.wiki, self.inbox, run.name, 'execution', 'job')
-        self.ref = adapter.submit('watchdog-repository-deleted', dict(
+        self.ref = submit(self.wiki, run, 'watchdog-repository-deleted', dict(
             kind='update', target=TARGET, summary='Repository deleted', why='Owner said so',
             evidence_ids=['kept-code'], base_sha256=sha(LIVE.encode())), STALE)
         self.original = self.inbox / '20261022-012328-run/candidates/watchdog-repository-deleted'

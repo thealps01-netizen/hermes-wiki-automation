@@ -49,7 +49,7 @@ class DriftCheckWithoutYaml(unittest.TestCase):
         self.assertIn("PyYAML", result)
         # Checks that need the config are skipped, not reported as missing components.
         self.assertNotIn("honey -> hermes", result)
-        self.assertNotIn("llm-wiki -> hermes", result)
+        self.assertNotIn("llm-wiki-desktop -> hermes", result)
 
     @unittest.skipUnless(importlib.util.find_spec("yaml"), "needs a Python with PyYAML as the stand-in")
     def test_reads_config_through_hermes_python(self):
@@ -121,7 +121,40 @@ class RemovedAgentsAreNotExpected(unittest.TestCase):
     def test_without_the_setting_every_agent_is_expected(self):
         result = self.result()
         self.assertIn("bileşen eksik: honey -> claude", result)
-        self.assertIn("skill eksik: llm-wiki -> codex", result)
+        self.assertIn("skill eksik: llm-wiki-desktop -> hermes", result)
+
+
+@unittest.skipUnless(importlib.util.find_spec("yaml"), "needs a Python with PyYAML as the stand-in")
+class SkillIsFoundByItsName(unittest.TestCase):
+    """A skill is looked up by the `name:` in its SKILL.md, not by its folder.
+
+    Why: the wiki skill was renamed llm-wiki-desktop while its folder stayed ~/.agents/skills/llm-wiki;
+    looking for the old name reported it missing in Hermes although Hermes loads it. Only Hermes is
+    expected to have it: the Antigravity copy was removed and Codex and Claude Code are not targets.
+    """
+
+    run_check = DriftCheckWithoutYaml.run_check
+
+    def result(self, name: str) -> str:
+        def prepare(home: Path, hermes: Path) -> None:
+            folder = home / ".agents" / "skills" / "llm-wiki"
+            folder.mkdir(parents=True)
+            (folder / "SKILL.md").write_text(f"---\nname: {name}\nauthor: Example Owner\n---\n\nWiki.\n",
+                                             encoding="utf-8")
+            (hermes / "config.yaml").write_text(
+                f"plugins:\n  enabled:\n  - honey\nskills:\n  external_dirs:\n  - {json.dumps(str(folder.parent))}\n",
+                encoding="utf-8")
+        out = self.run_check(hermes_python=True, prepare=prepare, drift={"agents": ["hermes", "codex"]})
+        self.assertNotIn("Traceback", out.stderr)
+        return out.stdout.split("== SONUÇ ==")[-1]
+
+    def test_the_renamed_skill_in_its_old_folder_is_present(self):
+        self.assertNotIn("skill eksik: llm-wiki-desktop", self.result("llm-wiki-desktop"))
+
+    def test_a_copy_still_under_the_old_name_is_missing_only_for_hermes(self):
+        result = self.result("llm-wiki")
+        self.assertIn("skill eksik: llm-wiki-desktop -> hermes", result)
+        self.assertNotIn("skill eksik: llm-wiki-desktop -> codex", result)
 
 
 @unittest.skipUnless(importlib.util.find_spec("yaml"), "needs a Python with PyYAML as the stand-in")

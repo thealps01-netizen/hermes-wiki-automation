@@ -159,13 +159,11 @@ const BUNDLES = {
       metroLast: (when, result) => (result ? `Last run ${when} · ${result}` : `Last run ${when}`),
       metroLastRun: 'Last run',
       metroLine: 'Wiki line',
-      metroLineClosed: name => `${name} line closed: folder not found`,
       metroLineHead: name => `${name} line`,
       metroLineMissing: 'folder not found',
       metroLineOff: 'off',
       metroLineOffState: 'Off — not collected',
       metroLineOnState: 'On — collected',
-      metroLineOnMissing: 'On — nothing collected while the folder is missing',
       metroLineOnSkipped: 'On — skipped while the folder is missing; the other lines are read',
       metroLineUnread: 'could not be read',
       metroLineOnUnread: 'On — its history could not be read, so its conversations wait',
@@ -174,12 +172,13 @@ const BUNDLES = {
       metroLineUnreadText: others => (others
         ? `Their conversations wait for a later run; the other ${countWord(others)} ${others === 1 ? 'line was' : 'lines were'} read. The history format may have changed.`
         : 'Their conversations wait for a later run. The history format may have changed.'),
-      metroLinesStopAll: 'This engine stops every line while a folder is missing, so no conversation is read. Updating the engine keeps the other lines running.',
-      metroHvBlocked: 'stopped: a line folder is missing',
-      metroHvNotFinished: 'The engine did not finish this run; its conversations wait for the next run.',
+      metroHvNight: 'Last night',
+      metroHvDrafts: n => (Number(n) === 1 ? '1 draft' : `${n} drafts`),
+      metroHvNightWhy: why => `stopped: ${why}`,
+      metroHvNightDone: 'everything waiting was read',
+      metroLineNight: 'Last night',
       metroHvCost: usd => `about $${usd} (Hermes' estimate)`,
       metroLineFolder: name => `${name} folder`,
-      metroLinesClosed: names => `${names} lines closed: folders not found`,
       metroLineReading: 'reading',
       metroLineState: 'State',
       metroLineSub: 'from your conversations to your wiki',
@@ -358,9 +357,8 @@ const BUNDLES = {
       engineMissing: 'Engine not installed',
       engineExistingUnverified: 'Existing engine found — not yet verified by this panel. Preview an update to see whether it can be adopted; nothing changes until you confirm the plan.',
       engineJobAdopt: 'adopted in place: schedule and on/off state kept; working folder, interpreter and launcher updated',
-      engineJobAdoptPaused: 'adopted in place and paused: new drafting prompt and tools; turn it on in Tasks after checking',
       engineJobKeep: 'kept as is',
-      engineJobRefreshPrompt: 'kept with its schedule and on/off state; drafting instructions updated to this release',
+      engineJobRetire: 'removed: this role was retired and is not recreated',
       engineJobRefreshInterpreter: 'kept with its schedule and on/off state; now runs with the Python Hermes uses',
       engineJobNew: 'new, paused',
       engineChoose: 'Choose project folder…',
@@ -552,25 +550,15 @@ const BUNDLES = {
       recoveryResume: 'Resume',
       recoveryDone: 'Approved operation completed.',
       setupOffTitle: 'Owner approval is off',
-      setupOff: 'You can read and reject candidates, but none can be approved and no new candidates are drafted until owner approval is on.',
-      setupChanged: 'Wiki Automation was updated. Turn owner approval on again so it trusts the new code.',
+      setupOff: 'You can read and reject candidates, but none can be approved until owner approval is on.',
       setupOwner: owner => owner === 'local_owner'
         ? 'Approvals are bound to this computer\'s Hermes session in this profile.'
         : `Approvals are bound to the signed-in account ${owner} in this profile.`,
-      setupJob: (name, schedule) => `${name || 'Session Harvest'}${schedule ? ` (${schedule})` : ''} drafts `
-        + 'candidates with the wiki drafting tools only; it cannot approve or write to the wiki.',
-      setupRestart: 'A background runtime check is turned on; the background service needs one restart afterwards, started from here.',
       setupTurnOn: 'Turn on owner approval',
       setupConfirm: 'Confirm and turn on',
-      setupDone: 'Owner approval is on. Restart the background service to finish.',
-      setupPendingTitle: 'Restart the background service to finish',
-      setupPending: 'Owner approval is on, but the background service that runs scheduled tasks has not loaded it yet. Approvals stay off until it restarts. Restarting the app alone does not restart it.',
-      setupRestartWhat: 'Scheduled tasks pause for about half a minute. A task running right now is stopped.',
-      setupRestartArm: 'Restart background service',
-      setupRestartConfirm: 'Restart now',
-      setupRestarting: 'Restarting the background service…',
-      setupRestartReady: 'Owner approval is ready.',
-      setupRestartLate: 'The background service was restarted, but owner approval is still not ready after two minutes. Try once more; if it stays, open Details in Watch Dog.',
+      setupDone: 'Owner approval is on.',
+      setupOnTitle: 'Owner approval is on',
+      setupNotReady: 'Owner approval is on, but the engine code or its settings could not be read. Open Details in Watch Dog.',
       setupReadFailed: 'could not read the owner approval setup',
       candRejected: 'candidate rejected',
       candFailed: 'the candidate action failed',
@@ -2547,8 +2535,8 @@ function EngineInstall({ t, auto, onEngineState }) {
       ] }, 'fields'),
       ...(plan.jobs || []).map(job => jsx('div', { className: 'wa-engine-job wa-mono',
         children: `${job.role} · ${job.name} · ${job.schedule}${{ adopt_existing: ` · ${t('wa.engineJobAdopt')}`,
-          adopt_paused: ` · ${t('wa.engineJobAdoptPaused')}`, keep_existing: ` · ${t('wa.engineJobKeep')}`,
-          refresh_prompt: ` · ${t('wa.engineJobRefreshPrompt')}`, refresh_interpreter: ` · ${t('wa.engineJobRefreshInterpreter')}`,
+          keep_existing: ` · ${t('wa.engineJobKeep')}`, retire: ` · ${t('wa.engineJobRetire')}`,
+          refresh_interpreter: ` · ${t('wa.engineJobRefreshInterpreter')}`,
           create_paused: ` · ${t('wa.engineJobNew')}` }[job.disposition] || ''}` }, job.role)),
       jsx('p', { children: plan.activation }, 'activation'),
       jsx('p', { children: t('wa.engineConsequence') }, 'consequence'),
@@ -3854,40 +3842,23 @@ function RecoveryList({ t, onComplete, inventory, scope }) {
   ] }, 'recovery')
 }
 
-const RESTART_WAIT_MS = 120000
-const RESTART_POLL_MS = 5000
-
 function OwnerSetup({ t, setup, scope, onComplete, onReload }) {
   const [armed, setArmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState(null)
-  const [restart, setRestart] = useState({ armed: false, since: 0 })
   const alive = useRef(true)
   useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
   const data = setup?.data
   useEffect(() => setArmed(false), [data?.plan_digest])
-  useEffect(() => {
-    if (!restart.since) return undefined
-    if (data?.ok === true && data.active === true && data.ready === true) {
-      setRestart({ armed: false, since: 0 })
-      setNote({ tone: 'ok', text: t('wa.setupRestartReady') })
-      onComplete?.()
-      return undefined
-    }
-    if (Date.now() - restart.since >= RESTART_WAIT_MS) {
-      setRestart({ armed: false, since: 0 })
-      setNote({ tone: 'bad', text: t('wa.setupRestartLate') })
-      return undefined
-    }
-    const id = setTimeout(() => { if (alive.current && scope?.matches()) onReload?.() }, RESTART_POLL_MS)
-    return () => clearTimeout(id)
-  }, [restart.since, data, setup])
   if (!setup || (data?.ok === true && data.active === true && data.ready === true && !note)) return null
   if (setup.error || data?.ok === false) {
     return jsx(Failure, { t, text: t('wa.setupReadFailed'), detail: setup.error
       || txReason(data.reason, data.reason_source, t)?.text || t('wa.candFailed') }, 'setup-error')
   }
   if (!data) return null
+  if (data.active === true && data.ready !== true) {
+    return jsx(Failure, { t, text: t('wa.setupReadFailed'), detail: t('wa.setupNotReady') }, 'setup-not-ready')
+  }
   const turnOn = async () => {
     if (busy || !scope?.matches() || typeof data.plan_digest !== 'string') return
     setBusy(true)
@@ -3897,57 +3868,20 @@ function OwnerSetup({ t, setup, scope, onComplete, onReload }) {
       if (!alive.current || !scope?.matches()) return
       setNote(result.ok ? { tone: 'ok', text: t('wa.setupDone') }
         : { tone: 'bad', text: txReason(result.reason, result.reason_source, t)?.text || t('wa.candFailed') })
-      if (result.ok) onComplete?.()
+      if (result.ok) { onReload?.(); onComplete?.() }
     } catch (error) {
       if (alive.current && scope?.matches()) setNote({ tone: 'bad', text: errText(error) })
     } finally {
       if (alive.current) { setBusy(false); setArmed(false) }
     }
   }
-  const restartService = async () => {
-    if (restart.since || !scope?.matches()) return
-    setNote(null)
-    try {
-      const result = await host.restartGateway()
-      if (!alive.current || !scope?.matches()) return
-      if (result && result.ok === false) {
-        setRestart({ armed: false, since: 0 })
-        setNote({ tone: 'bad', text: result.error || result.message || t('wa.candFailed') })
-        return
-      }
-      setRestart({ armed: false, since: Date.now() })
-    } catch (error) {
-      if (alive.current && scope?.matches()) {
-        setRestart({ armed: false, since: 0 })
-        setNote({ tone: 'bad', text: errText(error) })
-      }
-    }
-  }
-  const restartRow = jsxs('div', { className: 'wa-confirm', children: [
-    jsx('p', { className: 'wa-confirm-text', children: restart.since ? t('wa.setupRestarting') : t('wa.setupRestartWhat') }, 'what'),
-    jsx('div', { className: 'wa-confirm-row', children: restart.armed ? [
-      jsx(Button, { onClick: () => setRestart({ armed: false, since: 0 }), size: 'sm', variant: 'outline',
-        children: t('wa.jobCancel') }, 'cancel'),
-      jsx(Button, { onClick: restartService, size: 'sm', variant: 'default', children: t('wa.setupRestartConfirm') }, 'confirm')
-    ] : jsx(Button, { loading: !!restart.since, disabled: !!restart.since, size: 'sm', variant: 'default',
-      onClick: () => { setNote(null); setRestart({ armed: true, since: 0 }) }, children: t('wa.setupRestartArm') }, 'arm') }, 'row')
-  ] }, 'restart')
-  const pending = data.active === true
-  return jsxs('section', { 'data-owner-setup': pending ? 'restart' : 'off', className: 'wa-body', children: [
-    jsx('h2', { children: pending ? t('wa.setupPendingTitle') : t('wa.setupOffTitle') }, 'title'),
+  const on = data.active === true
+  return jsxs('section', { 'data-owner-setup': on ? 'on' : 'off', className: 'wa-body', children: [
+    jsx('h2', { children: on ? t('wa.setupOnTitle') : t('wa.setupOffTitle') }, 'title'),
     note ? jsx('div', { className: `wa-msg wa-${note.tone}`, role: 'status', children: note.text }, 'note') : null,
-    pending ? (data.ready === true ? null : jsxs('div', { children: [
-      note ? null : jsx('p', { className: 'wa-confirm-text', children: t('wa.setupPending') }, 'pending'),
-      restartRow
-    ] }, 'pending'))
-      : jsxs('div', { className: 'wa-confirm', children: [
-        jsx('p', { className: 'wa-confirm-text',
-          children: data.code_changed ? t('wa.setupChanged') : t('wa.setupOff') }, 'why'),
-      jsxs('ul', { className: 'wa-confirm-text', children: [
-        jsx('li', { children: t('wa.setupOwner', data.owner) }, 'owner'),
-        jsx('li', { children: t('wa.setupJob', data.job?.name, data.job?.schedule) }, 'job'),
-        jsx('li', { children: t('wa.setupRestart') }, 'restart')
-      ] }, 'changes'),
+    on ? null : jsxs('div', { className: 'wa-confirm', children: [
+      jsx('p', { className: 'wa-confirm-text', children: t('wa.setupOff') }, 'why'),
+      jsx('ul', { className: 'wa-confirm-text', children: jsx('li', { children: t('wa.setupOwner', data.owner) }, 'owner') }, 'changes'),
       jsx('div', { className: 'wa-confirm-row', children: armed ? [
         jsx(Button, { disabled: busy, onClick: () => setArmed(false), size: 'sm', variant: 'outline',
           children: t('wa.jobCancel') }, 'cancel'),
@@ -3984,7 +3918,8 @@ const engineUpdate = data => (data?.ok === true && ENGINE_UPDATABLE.includes(dat
   && engineHex(data.current_revision, 40) && engineHex(data.selected_revision, 40)
   && data.current_revision !== data.selected_revision
   ? { current: data.current_revision.slice(0, 7), selected: data.selected_revision.slice(0, 7) } : null)
-const HARVEST_ROLE = 'session_harvest'
+const HARVEST_ROLE = 'harvest_night'
+const NIGHT_SLACK_MS = 120000
 const HARVEST_LIVE_MS = 3 * 3600 * 1000
 const RUN_STORE_LIMIT = 3
 
@@ -3995,12 +3930,12 @@ const LIVE_LINE = ['ok', 'run']
 const lineUnread = (row, last) => row.enabled && row.found && String(last?.agents?.[row.id] || '').startsWith('UNREADABLE')
 const lineState = (row, running, last) => (!row.found ? 'missing' : !row.enabled ? 'off' : running ? 'run'
   : lineUnread(row, last) ? 'unread' : 'ok')
-const harvestOutcome = (data, latest, running) => {
-  if (!data || data.ok !== true || running || !latest || ACTIVE_STATUS.includes(latest.status)) return null
-  const last = data.last_run
-  if (!last) return null
-  const finished = last.execution_id === latest.id || stampAt(latest) > (Date.parse(last.created || '') || 0)
-  return finished && !(last.execution_id === latest.id && last.committed === true) ? 'stopped' : null
+const nightOf = (data, run) => {
+  const night = data?.ok === true ? data.last_night : null
+  const start = Date.parse(night?.started || '')
+  if (!night || !run || !start || ACTIVE_STATUS.includes(run.status)) return null
+  const end = Date.parse(run.finished_at || '') || Date.now()
+  return start >= stampAt(run) - NIGHT_SLACK_MS && start <= end + NIGHT_SLACK_MS ? night : null
 }
 const capFirst = text => (text ? text.charAt(0).toUpperCase() + text.slice(1) : text)
 const shortText = (text, size = 150) => {
@@ -4074,15 +4009,10 @@ function harvestModel(t, reads, lines) {
   const running = live && role.target?.impl_ok !== false && (fresh(history[0]) || fresh(stored))
   const active = running ? (fresh(history[0]) ? history[0] : stored) : null
   const latest = active || history[0] || null
-  const recorded = live && !running && (role.last_status === 'error' || latest?.status === 'failed')
-  const outcome = live && !recorded ? harvestOutcome(status?.data, history[0] || null, running) : null
-  const failed = recorded || outcome === 'stopped'
-  const stopsAll = status?.data?.ok === true && status.data.last_run_supported === false
-  const blocked = live && !running && stopsAll && lines.some(line => line.state === 'missing' && line.row.enabled)
+  const failed = live && !running && (role.last_status === 'error' || latest?.status === 'failed')
   const paused = live && role.state === 'paused'
   const stoppedAt = latest?.finished_at || role?.last_run_at || latest?.at || ''
-  const cause = recorded ? String(role.last_error || latest?.error_preview || '')
-    : outcome === 'stopped' ? (status?.data?.last_run?.stop_reason?.detail || t('wa.metroHvNotFinished')) : ''
+  const cause = failed ? String(role.last_error || latest?.error_preview || '') : ''
   const feeding = lines.filter(line => line.row.found && line.row.enabled && line.state !== 'unread').length
   const does = lines.length && feeding < lines.length ? t('wa.metroHvReads', feeding, lines.length)
     : t('wa.metroHvDoes')
@@ -4095,7 +4025,6 @@ function harvestModel(t, reads, lines) {
           line1: t('wa.metroHvStopped', hourOf(stoppedAt) || '—'), line2: t('wa.metroHvLastFailed') }
           : paused ? { state: 'paused', pill: pill('debug-pause', 'warn', t('wa.metroPausedShort')),
             line1: does, line2: t('wa.metroHvPaused') }
-            : blocked ? { state: 'bad', line1: t('wa.metroHvBlocked'), line2: t('wa.metroSeeAlert') }
             : role.target?.impl_ok === false ? { state: 'bad', line1: t('wa.metroHvMissingTarget'),
               line2: t('wa.metroSeeAlert') }
               : role.target?.root_ok === false ? { state: 'bad', line1: t('wa.metroHvNotVerified'),
@@ -4103,10 +4032,9 @@ function harvestModel(t, reads, lines) {
                 : !role.target?.ok ? { state: 'bad', line1: t('wa.metroHvCannotRun'), line2: t('wa.metroSeeAlert') }
               : { state: 'ok', pill: role.next_run_at ? pill('clock', 'ask', t('wa.metroNext', hourOf(role.next_run_at)))
                 : null, line1: does, line2: untilText(t, role.next_run_at) || t('wa.metroHvNoNext') }
-  const engineRun = status?.data?.ok === true ? status.data.last_run : null
-  const cost = !running && engineRun && history[0] && engineRun.execution_id === history[0].id
-    && typeof engineRun.cost_usd === 'number' ? engineRun.cost_usd : null
-  return { known, roles, role, latest, running, failed, paused, stoppedAt, cause, station, stopsAll, cost }
+  const night = running ? null : nightOf(status?.data, history[0] || null)
+  const cost = typeof night?.cost_usd === 'number' ? night.cost_usd : null
+  return { known, roles, role, latest, running, failed, paused, stoppedAt, cause, station, night, cost }
 }
 
 function reviewModel(t, reads, projectOk, running) {
@@ -4222,14 +4150,6 @@ function metroAlert(t, parts) {
       text: t('wa.metroLineUnreadText', others), raw: unreadAll.map(line => `${line.id}: ${line.report}`).join('\n'),
       action: { label: t('wa.metroShowLine'), open: `line:${unreadAll[0].id}` } }
   }
-  const closedAll = harvest.stopsAll ? lines.filter(line => line.state === 'missing' && line.row.enabled) : []
-  const closed = closedAll[0]
-  if (closed) {
-    const names = listText(t, closedAll.map(line => line.name))
-    return { key: 'job-broken', tone: 'bad', glyph: 'folder',
-      heading: closedAll.length > 1 ? t('wa.metroLinesClosed', names) : t('wa.metroLineClosed', closed.name),
-      text: t('wa.metroLinesStopAll'), action: install }
-  }
   if (review.count) {
     return { key: 'drafts', tone: 'ask', glyph: 'inbox', heading: t('wa.metroDraftsTitle', review.count),
       text: t('wa.metroDraftsText'), action: { label: t('wa.metroReviewDrafts'), open: 'review' } }
@@ -4269,7 +4189,7 @@ function metroModel(t, reads) {
   const projectOk = auto.data?.settings?.project?.ok === true
   const failures = metroFailures(t, reads, projectOk)
   const agents = status.data?.agents || []
-  const last = status.data?.last_run || null
+  const last = status.data?.ok === true ? status.data.last_night || null : null
   const draft = agents.map((row, index) => ({ row, id: String(row.id), name: lineName(row),
     hue: lineHue(row, index), state: lineState(row, false, last), report: String(last?.agents?.[row.id] || '') }))
   const harvest = harvestModel(t, reads, draft)
@@ -4946,7 +4866,7 @@ function WikiDetail({ t, model, reads, onClose }) {
 
 function HarvestDetail({ t, model, reads, onClose }) {
   const { auto, jobs, harvest, runs } = reads
-  const { known, role, latest, running, failed, cause, cost } = model.harvest
+  const { known, role, latest, running, failed, cause, cost, night } = model.harvest
   const refused = jobs.error || refusal(t, jobs.data)
   const unknown = t('wa.metroNotReported')
   const names = model.lines.filter(line => line.row.found && line.row.enabled).map(line => line.name)
@@ -4963,8 +4883,11 @@ function HarvestDetail({ t, model, reads, onClose }) {
       : role.next_run_at ? [capFirst(whenText(t, role.next_run_at)), untilText(t, role.next_run_at)]
         .filter(Boolean).join(' · ') : '—' },
     { label: t('wa.metroLastRun'), value: !known ? unknown : role?.last_run_at
-      ? [capFirst(whenText(t, role.last_run_at)), took, outcome, spent].filter(Boolean).join(' · ') : t('wa.runNever') }
-  ]
+      ? [capFirst(whenText(t, role.last_run_at)), took, outcome, spent].filter(Boolean).join(' · ') : t('wa.runNever') },
+    night ? { label: t('wa.metroHvNight'), value: [t('wa.metroHvDrafts', night.drafts),
+      night.stopped || night.error ? t('wa.metroHvNightWhy', night.stopped || night.error) : t('wa.metroHvNightDone')]
+      .join(' · ') } : null
+  ].filter(Boolean)
   return jsxs(MetroDetail, { t, id: 'harvest', glyph: 'sparkle', heading: t('wa.metroHarvestHead'), onClose,
     children: [
       harvest.error ? jsx(Failure, { t, text: t('wa.metroLinesUnread'), detail: harvest.error }, 'lines-failed') : null,
@@ -4995,8 +4918,9 @@ function LineDetail({ t, id, model, reads, onClose }) {
     { label: t('wa.metroLineFolder', line.name), value: line.row.found ? t('wa.metroFound') : t('wa.metroNotFound') },
     { label: t('wa.metroLineState'), value: !line.row.enabled ? t('wa.metroLineOffState')
       : line.state === 'unread' ? t('wa.metroLineOnUnread') : line.row.found ? t('wa.metroLineOnState')
-        : model.harvest.stopsAll ? t('wa.metroLineOnMissing') : t('wa.metroLineOnSkipped') }
-  ] : []
+        : t('wa.metroLineOnSkipped') },
+    line.report ? { label: t('wa.metroLineNight'), value: line.report } : null
+  ].filter(Boolean) : []
   const honest = [t('wa.metroHonest'), dated ? t('wa.metroHonestFrom', whenText(t, cursor)) : ''].filter(Boolean)
   return jsxs(MetroDetail, { t, id, glyph: 'comment-discussion',
     heading: line ? t('wa.metroLineHead', line.name) : t('wa.metroLine'), onClose, children: [
