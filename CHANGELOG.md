@@ -3,6 +3,26 @@
 Notable changes to the Wiki Automation panel. The version is carried in three places — `plugin.yaml`,
 `dashboard/manifest.json` and the top heading below — and the static audit fails when they disagree.
 
+## 2.11.1
+
+Engine `d03321b` (unchanged). A design review of every screen (40 states, 1280 and 1024 px, dark and
+light) and its fixes.
+
+### Fixed
+* **The sphere in the light theme.** Its dots were drawn in the ink of the theme it first opened in and
+  were nearly invisible on a light card; the sphere now re-reads the theme when it changes and draws
+  older pages with enough contrast on light. It sits centred with its folder labels clear of the dots.
+* **The notch is kept when the alert bar sits between the line and the open detail**, so the detail
+  still points at its station or branch.
+* **Missing, off and unread branch lines look different**: missing is a dashed grey line with a hollow
+  dot, off a faint dotted line, unread an orange dashed line with a filled dot. An open branch is
+  tinted like an open station.
+* **One quiet look inside the details.** Settings sections are rounded framed boxes with an inner
+  margin (no dark blocks, no doubled lines); the timetable editor is a neutral box, not a warning; the
+  review desk lines up with the card; a refusal carries an orange rule and a readable heading; the
+  technical log uses the same corners. The alert bar's colour stripe is a straight edge, stops have
+  no glow, and the Harvest caption breaks evenly at 1024 px.
+
 ## 2.11.0
 
 Engine `d03321b` (unchanged). The panel gets the modern look the owner approved
