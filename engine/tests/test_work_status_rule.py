@@ -15,7 +15,7 @@ ENGINE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENGINE))
 import harvest_extract as hx
 
-CORE = ('where a piece of work stood when the conversation ended: waiting for the owner\'s approval, not yet merged, installed, pushed, released or run (e.g. "PR #18 is not merged yet", "the skill waits for approval", "the first monthly lint has not run yet"); keep a check nobody has made that later work depends on (e.g. "the package was never tried on a machine without the .NET SDK")')
+CORE = ('where a piece of work stood when the conversation ended: waiting for the owner\'s approval, not yet merged, installed, pushed, released or run (e.g. "the pull request is not merged yet", "the skill waits for approval", "the first monthly check has not run yet"); keep a check nobody has made that later work depends on (e.g. "the package was never tried on a machine without its build tools")')
 
 
 def flat(text):

@@ -46,9 +46,10 @@ is quoted above; follow it.
 List every item of these types from the conversation part:
 - decision: what the owner decided, approved or rejected, stated with its content. Include closing
   verdicts ("not adopted", "nothing installed", "not reviewed", "not a candidate") and rules for the
-  future ("if X is ever started, use Y"). Changing a setting, choosing a design direction or rejecting
-  a proposed feature is a decision, not stale state: write the chosen value or the rejected option
-  (a personal customisation is the exception listed below);
+  future ("if X is ever started, use Y"). Choosing a design direction or rejecting a proposed feature
+  is a decision, not stale state: write the chosen value or the rejected option (a personal
+  customisation is the exception listed below). A changed setting counts only for the reason later
+  work needs; its value alone is the current value of a setting, listed below;
 - finding: a fact checked or measured in the conversation; for a problem that was solved, its root
   cause and fix, not the attempts;
 - process: a repeatable way of working the owner asked for or corrected;
@@ -60,14 +61,20 @@ Do not list:
 - an approval without its content: write what was approved (quote the proposal) or drop it;
 - a request or question whose outcome is not in this part;
 - state that goes stale: what is installed or running right now, a UI bug that was fixed, an
-  intermediate plan that was not adopted (a setting the owner decided to change is a decision above);
+  intermediate plan that was not adopted;
+- a setting's current value: the current value of a setting the owner can change himself: which
+  skin, theme, model, provider or option is on right now (e.g. "the main app uses the dark skin", "the
+  default model is the larger one"), and a changed decision that only records such a value; the
+  setting itself is where the value lives, and a copy here drifts without notice; keep why a setting
+  must have a certain value (a cause, a constraint);
 - a personal customisation: which theme, skin, font, colour scheme, wallpaper or layout the owner
   uses, installed, renamed or deleted, and the looks rejected while searching for one; keep the lesson
   learned while building one (a cause, a constraint, a rule for next time);
 - the state of work: where a piece of work stood when the conversation ended: waiting for the owner's
-  approval, not yet merged, installed, pushed, released or run (e.g. "PR #18 is not merged yet", "the
-  skill waits for approval", "the first monthly lint has not run yet"); keep a check nobody has made
-  that later work depends on (e.g. "the package was never tried on a machine without the .NET SDK");
+  approval, not yet merged, installed, pushed, released or run (e.g. "the pull request is not merged
+  yet", "the skill waits for approval", "the first monthly check has not run yet"); keep a check
+  nobody has made that later work depends on (e.g. "the package was never tried on a machine without
+  its build tools");
 - small talk, tool chatter, and anything only in the "context only" turns.
 
 For each item write `later_use`: one sentence on what a later session would do differently because of

@@ -41,10 +41,14 @@ wiki's AGENTS.md, and procedures. Nor does a personal customisation: which theme
 scheme, wallpaper or layout the owner uses, installed, renamed or deleted, and the looks rejected
 while searching for one; keep the lesson learned while building one (a cause, a constraint, a rule for
 next time). Nor does the state of work: where a piece of work stood when the conversation ended:
-waiting for the owner's approval, not yet merged, installed, pushed, released or run (e.g. "PR #18 is
-not merged yet", "the skill waits for approval", "the first monthly lint has not run yet"); keep a
-check nobody has made that later work depends on (e.g. "the package was never tried on a machine
-without the .NET SDK").
+waiting for the owner's approval, not yet merged, installed, pushed, released or run (e.g. "the pull
+request is not merged yet", "the skill waits for approval", "the first monthly check has not run
+yet"); keep a check nobody has made that later work depends on (e.g. "the package was never tried on a
+machine without its build tools"). Nor does the current value of a setting: the current value of a
+setting the owner can change himself: which skin, theme, model, provider or option is on right now
+(e.g. "the main app uses the dark skin", "the default model is the larger one"), and a changed
+decision that only records such a value; the setting itself is where the value lives, and a copy here
+drifts without notice; keep why a setting must have a certain value (a cause, a constraint).
 Note procedures as skill candidates in the owner report, not as installed skills.
 Most conversations produce nothing. `no_candidates` is an explicit normal outcome, not failure.
 
@@ -90,6 +94,9 @@ For new/update, `source` is the complete proposed English source: `# Title`, `##
 `## Decisions` (numbered bold decisions with `Why:`, `Rejected:` and `Evidence:`),
 `## Findings` (bold `F<n>.` findings, each with `Evidence:`; omit the section when there are none),
 `## Changed decisions`, `## Open`, `## Evidence` table. No YAML frontmatter or wikilinks.
+One numbered decision holds one choice and its reason. A second choice, or a lesson learned on the way
+(a cause, a constraint, a rule for next time), is its own decision, and an `## Open` bullet holds one
+question, so each can later be kept, changed or dropped alone.
 For an update, keep the filename and every unchanged decision and finding word for word. For retirement,
 submit no replacement source. The engine validates format and captured candidate completeness
 before recording drafting completion; submitting is never live publication.

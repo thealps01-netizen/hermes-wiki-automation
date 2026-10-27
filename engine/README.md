@@ -36,7 +36,9 @@ records each run's drafting session and turn end in `inbox/<run>/attempt.json` (
 - `wiki_audit.py`, `app_graph_isolated.py`, `drift_check.py`: read-only checks.
 - `source_cleanup.py`: one-off, run by hand. Reads every existing source once and drafts into Review a
   removal-only update (entries that do not count under `harvest_prompt.md` "What counts", such as which
-  theme or skin is in use), a retirement, or nothing. Code refuses any reworded or added entry. Cost cap
+  theme or skin is in use), a retirement, or nothing. The model names lines, sentences, clauses after
+  a semicolon or whole decisions by number and the code removes them, so no kept word can change;
+  a draft removing more than half of the text says so in its `why`. Cost cap
   and time limit from `settings.json` -> `source_cleanup` (`cap_usd` 8, `minutes` 45); a source already
   read at the same content is not read again (`source-cleanup/state.json`). A removal justified by
   the owner's rule must quote a sentence of it that code finds there. `--shadow <folder>` writes

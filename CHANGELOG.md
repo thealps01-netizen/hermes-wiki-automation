@@ -3,6 +3,43 @@
 Notable changes to the Wiki Automation panel. The version is carried in three places — `plugin.yaml`,
 `dashboard/manifest.json` and the top heading below — and the static audit fails when they disagree.
 
+## 2.13.2
+
+Engine `18a99c9` (was `fccb365`).
+
+### Changed
+* **Source cleanup removes by number, down to a sentence or a clause.** The model is shown the source
+  with every line, sentence and clause after a semicolon numbered, names what to remove ("23", "23.2",
+  "decision 3") with a reason, and the code builds the draft; a draft whose body is not the source
+  with parts deleted is refused. The 2.13.1 shadow run on the Phosphor source could only keep or drop
+  whole entries and lost a lesson and an open question that each shared an entry with a skin name or a
+  note on where the work stood; the same run on this version kept both and dropped only the
+  customisation and state-of-work parts (0.095 USD, shadow). A decision's bold heading goes only with its
+  whole decision, so a lesson inside a decision named after a customisation still keeps that heading.
+  The prompt adds "When you are unsure whether something counts, keep it", a draft removing more than
+  half of the source's text opens its `why` with "Large removal", and sources with a byte order mark
+  or Windows line endings are read the same. A hard-wrapped paragraph or bullet is joined onto one
+  numbered line first, so a sentence never spans two numbers: in a shadow run on a wrapped source,
+  removing the first line of a sentence had dropped its "- Why:" label. The deletion check compares
+  words and punctuation in order, after a character diff had refused a pure deletion on the Radagon
+  source. Shadow runs on six sources (Phosphor three times, Torchlight, Radagon, Subagent watch,
+  Approvals panel; about 0.85 USD in total) kept the lessons and dropped the customisation, setting and
+  state-of-work parts, with one exception the warning caught: one Radagon run removed a whole decision
+  (59 % of the text, "Large removal") whose reason held a lesson. `engine/tests/test_source_cleanup.py`
+  (36 tests).
+* **The current value of a setting does not count.** Which skin, theme, model, provider or option the
+  owner has on right now, and a Changed decisions entry that only records such a value, stay out of
+  the wiki: the setting is where the value lives, and a copy goes stale without notice. Why a setting
+  must have a certain value still counts. The reader no longer asks for "the chosen value" of a changed
+  setting, and the cleanup may drop such a Changed decisions entry alone. In the shadow run before this
+  rule the Phosphor source kept "the main app keeps the built-in mono skin"; after it, that line went in
+  every run. `engine/tests/test_setting_value_rule.py`.
+* **One numbered decision holds one choice and its reason.** The drafter writes a second choice or a
+  lesson learned on the way as its own decision and one question per Open bullet, so a later cleanup
+  can keep or drop each alone. `engine/tests/test_entry_size_rule.py`.
+* **The state-of-work examples are general.** "PR #18" and ".NET SDK" became "the pull request" and
+  "its build tools" in both harvest stages, so the rule names a kind of note, not one past conversation.
+
 ## 2.13.1
 
 Engine `fccb365` (was `4d29c66`).
