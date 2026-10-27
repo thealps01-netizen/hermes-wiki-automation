@@ -38,7 +38,8 @@ records each run's drafting session and turn end in `inbox/<run>/attempt.json` (
   removal-only update (entries that do not count under `harvest_prompt.md` "What counts", such as which
   theme or skin is in use), a retirement, or nothing. Code refuses any reworded or added entry. Cost cap
   and time limit from `settings.json` -> `source_cleanup` (`cap_usd` 8, `minutes` 45); a source already
-  read at the same content is not read again (`source-cleanup/state.json`). `--shadow <folder>` writes
+  read at the same content is not read again (`source-cleanup/state.json`). A removal justified by
+  the owner's rule must quote a sentence of it that code finds there. `--shadow <folder>` writes
   drafts and the report only into that folder.
 - Contradictions between sources: no script yet. The app's Lint → "Semantic (LLM)" option is only a
   hint (the model sees the first 500 characters of each page). Never press its Fix buttons: they

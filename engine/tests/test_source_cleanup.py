@@ -161,6 +161,31 @@ class Cleanup(unittest.TestCase):
         self.assertIn('decision 1', calls[1])
         self.assertEqual(len(report['candidates']), 1)
 
+    def test_a_removal_citing_the_owner_rule_must_quote_it(self):
+        cites = [{'unit': 'decision 1', 'reason': 'this belongs in AGENTS.md'}] + REMOVED[1:]
+        bad = reply({'kind': 'update', 'summary': 's', 'removed': cites}, CLEANED)
+        call, calls = self.model([bad, bad])
+        report = self.run_cleanup(call)
+        self.assertEqual(report['candidates'], [])
+        self.assertIn('quote', calls[1])
+
+    def test_a_quote_that_is_not_in_the_owner_rule_is_refused(self):
+        cites = [{'unit': 'decision 1', 'reason': 'already a rule in AGENTS.md',
+                  'quote': 'Rename every reference in the same step.'}] + REMOVED[1:]
+        bad = reply({'kind': 'update', 'summary': 's', 'removed': cites}, CLEANED)
+        call, _ = self.model([bad, bad])
+        report = self.run_cleanup(call)
+        self.assertEqual(report['candidates'], [])
+        self.assertTrue(any('not in the owner' in p for p in report['refused'][0]['problems']))
+
+    def test_a_quote_found_in_the_owner_rule_is_accepted(self):
+        cites = [{'unit': 'decision 1', 'reason': 'already a rule in AGENTS.md',
+                  'quote': 'Knowledge that survives without the session.'}] + REMOVED[1:]
+        good = reply({'kind': 'update', 'summary': 's', 'removed': cites}, CLEANED)
+        call, _ = self.model([good])
+        report = self.run_cleanup(call)
+        self.assertEqual(len(report['candidates']), 1)
+
     def test_nothing_to_remove_is_recorded_as_unchanged(self):
         call, _ = self.model([reply({'kind': 'none', 'why': 'every entry is durable'})])
         report = self.run_cleanup(call)

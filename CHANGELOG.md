@@ -3,6 +3,25 @@
 Notable changes to the Wiki Automation panel. The version is carried in three places — `plugin.yaml`,
 `dashboard/manifest.json` and the top heading below — and the static audit fails when they disagree.
 
+## 2.13.1
+
+Engine `fccb365` (was `4d29c66`).
+
+### Changed
+* **Source cleanup: a removal that cites the owner's rule must quote it.** The first real run (Phosphor
+  source, shadow, 0.09 USD) dropped the lesson "a renamed theme is renamed in every profile in the same
+  step" as "belongs in AGENTS.md", although AGENTS.md has no such rule. A removal whose reason cites
+  AGENTS.md, the owner's rule or "already a rule" now needs a `quote`; code refuses the draft when the
+  quote is missing or is not in the rule the model was shown. Something that ought to become a rule is
+  not a reason to remove it. Three tests in `engine/tests/test_source_cleanup.py`.
+* **Where a piece of work stood no longer reaches the wiki.** Both harvest stages and the source
+  cleanup now leave out the state of work when a conversation ended: waiting for the owner's approval,
+  not yet merged, installed, pushed, released or run. The drafts in Review held open items such as
+  "whether #17 and #18 are merged and then installed" after the owner had approved or installed the work
+  outside the chat. A check nobody has made that later work depends on ("never tried on a machine
+  without the .NET SDK") still stays open. Following Mem0's extraction guidance, the rule names negative
+  and positive examples. `engine/tests/test_work_status_rule.py` keeps the stages on the same words.
+
 ## 2.13.0
 
 Engine `4d29c66` (unchanged from 2.12.2).

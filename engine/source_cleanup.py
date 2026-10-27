@@ -13,7 +13,9 @@ Nothing reaches the wiki without the owner's approval (`wiki_candidates.py appro
 REMOVAL ONLY: code refuses a draft that rewords or adds anything. Every entry of the draft (a decision
 or finding block, a bullet, a table row, a heading) must be an entry of the current source, word for
 word; only the title line and the Scope paragraph may be rewritten to describe what remains. A removed
-decision or finding without a reason is refused. A refused draft gets one repair call, then it is
+decision or finding without a reason is refused. A reason that cites the owner's rule (AGENTS.md) must
+quote it, and the quote must be in the rule the model was shown: the first real run (2026-10-27) dropped
+a lesson as "belongs in AGENTS.md" although AGENTS.md has no such rule. A refused draft gets one repair call, then it is
 reported as refused. The drafting checks every other draft passes (`draft_adapter.check_draft`) run too.
 
 LIMITS (settings.json "source_cleanup", defaults below): a cost cap and a time limit per run, judged
@@ -58,6 +60,7 @@ CLEANUP_MARK = '=== CLEAN ONE SOURCE ==='
 ENTRY_START = re.compile(r'^(?:- |#|\||\*\*|\d+\.\s)')
 REASONED = ('decision ', 'finding F')
 WHY_LIMIT = 2000
+CITES_RULE = re.compile(r"AGENTS\.md|owner'?s rule|already a rule", re.I)
 
 
 class CleanupError(Exception):
@@ -123,20 +126,23 @@ def cleanup_prompt(target, page, rules_text, owner_rules):
             'else.\n'
             '- Keep the numbers of kept decisions and findings; gaps in the numbering are fine.\n'
             '- Remove an entry only when it does not count under the rules above: which personal customisation '
-            'is in use and the looks rejected on the way, facts about one day or one machine\'s state, how work '
-            'was done, attempts that were reverted. Do not remove a decision because it is old, small or '
+            'is in use and the looks rejected on the way, where a piece of work stood (waiting for approval, not '
+            'yet merged, installed or run), facts about one day or one machine\'s state, how work was done, '
+            'attempts that were reverted. Do not remove a decision because it is old, small or '
             'owner-directed.\n'
+            '- Remove an entry as already a rule only when THE OWNER\'S RULE above already says it, and copy '
+            'that sentence into "quote". Something that ought to become a rule is not removed for that reason.\n'
             '- Remove a Changed decisions entry only when it is about a removed decision. Remove an Evidence row '
             'only when no kept entry cites it. Remove a section heading only when its section is left empty; '
             '## Decisions always stays.\n'
             '- When no decision or finding is left, the whole source is retired.\n\n'
             'Reply in exactly this format, nothing before or after:\n'
             '=== METADATA ===\n{"kind": "update|retire|none", "summary": "...", "why": "...", '
-            '"removed": [{"unit": "decision 3", "reason": "..."}]}\n'
+            '"removed": [{"unit": "decision 3", "reason": "...", "quote": "..."}]}\n'
             '=== SOURCE ===\n<the complete cleaned source>\n=== END ===\n'
             'kind "update": the SOURCE block is the cleaned source; "removed" names every removed decision as '
             '"decision N" and every removed finding as "finding FN", each with a one-sentence reason, and may name '
-            'other removed entries too. kind "retire": no SOURCE block; summary and why say why nothing durable '
+            'other removed entries too; "quote" only when the reason is the owner\'s rule. kind "retire": no SOURCE block; summary and why say why nothing durable '
             'is left. kind "none": only "why", no SOURCE block, when every entry counts.\n'
             'summary and why are plain text of one to three sentences, at most 2000 characters.\n')
 
@@ -168,6 +174,24 @@ def removal_reasons(metadata):
     return out
 
 
+def unquoted_rules(metadata, owner_rules):
+    """Removals whose reason cites the owner's rule without a quote found in that rule."""
+    rules = hx.norm(owner_rules)
+    problems = []
+    for entry in metadata.get('removed') or []:
+        if not (isinstance(entry, dict) and isinstance(entry.get('reason'), str)
+                and CITES_RULE.search(entry['reason'])):
+            continue
+        quote = entry.get('quote')
+        unit = entry.get('unit', '?')
+        if not (isinstance(quote, str) and hx.norm(quote)):
+            problems.append(f'{unit} is removed as the owner\'s rule but has no "quote" from that rule')
+        elif hx.norm(quote) not in rules:
+            problems.append(f'{unit}: the quote is not in the owner\'s rule shown above, so the entry is not '
+                            'already a rule; keep it or give a reason the rules above support')
+    return problems
+
+
 def why_text(reasons, lost):
     """The candidate's `why`: every removed unit with its reason, then the other dropped units."""
     named = [f'{unit}: {reason}' for unit, reason in reasons.items()]
@@ -178,7 +202,7 @@ def why_text(reasons, lost):
     return text if len(text) <= WHY_LIMIT else text[:WHY_LIMIT - 3] + '...'
 
 
-def proposal(wiki, candidates, target, page, metadata, source):
+def proposal(wiki, candidates, target, page, metadata, source, owner_rules=''):
     """(candidate metadata, problems) for one parsed reply."""
     path = Path(wiki) / 'raw' / 'sources' / target
     base_sha = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -199,6 +223,7 @@ def proposal(wiki, candidates, target, page, metadata, source):
     unreasoned = [unit for unit in lost if unit.startswith(REASONED) and unit not in reasons]
     if unreasoned:
         problems.append('these were removed without a reason in "removed": ' + ', '.join(unreasoned))
+    problems += unquoted_rules(metadata, owner_rules)
     if not lost:
         problems.append('nothing was removed; reply with kind "none" instead')
     if problems:
@@ -224,7 +249,7 @@ def clean_one(target, wiki, candidates, rules_text, owner_rules, ask, report):
             if metadata['kind'] == 'none':
                 report['unchanged'].append({'target': target, 'why': str(metadata.get('why', ''))[:500]})
                 return 'unchanged'
-            candidate, problems = proposal(wiki, candidates, target, page, metadata, source)
+            candidate, problems = proposal(wiki, candidates, target, page, metadata, source, owner_rules)
             if not problems:
                 try:
                     base = draft_adapter.check_draft(wiki, candidates, candidate, source)

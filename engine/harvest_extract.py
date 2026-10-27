@@ -64,6 +64,10 @@ Do not list:
 - a personal customisation: which theme, skin, font, colour scheme, wallpaper or layout the owner
   uses, installed, renamed or deleted, and the looks rejected while searching for one; keep the lesson
   learned while building one (a cause, a constraint, a rule for next time);
+- the state of work: where a piece of work stood when the conversation ended: waiting for the owner's
+  approval, not yet merged, installed, pushed, released or run (e.g. "PR #18 is not merged yet", "the
+  skill waits for approval", "the first monthly lint has not run yet"); keep a check nobody has made
+  that later work depends on (e.g. "the package was never tried on a machine without the .NET SDK");
 - small talk, tool chatter, and anything only in the "context only" turns.
 
 For each item write `later_use`: one sentence on what a later session would do differently because of
