@@ -1792,6 +1792,27 @@ def check_wiki_map() -> None:
         _report("plugin.js: a missing page is no longer a pressable button with aria-pressed")
 
 
+def check_host_geometry() -> None:
+    """Corners come from the host's radius tokens (`--radius-md/lg/xl`, scaled by the app's
+    `--radius-scalar`). Measured before this rule: ten literal radii (2 to 14 px) on a host whose own
+    cards are 2 to 3 px, and the panel read as a foreign page inside Hermes. Allowed literals: 0, 1px,
+    a circle (50%) and a pill (99px and up)."""
+    js = read(JS)
+    for m in re.finditer(r"(?:border(?:-[a-z]+)*-radius|--wa-r):([^;}]+)", js):
+        for value in re.findall(r"\d+(?:\.\d+)?px|\d+%", re.sub(r"var\([^)]*\)", "", m.group(1))):
+            n = float(value[:-2]) if value.endswith("px") else None
+            if value == "50%" or (n is not None and (n <= 1 or n >= 99)):
+                continue
+            line = js.count("\n", 0, m.start()) + 1
+            _report(f"plugin.js:{line}: a corner is written literally ({value}) — corners come from the "
+                    "host's --radius-* tokens")
+    for m in re.finditer(r"borderRadius:\s*([^,}\n]+)", js):
+        if "var(--radius-" not in m.group(1):
+            line = js.count("\n", 0, m.start()) + 1
+            _report(f"plugin.js:{line}: a corner is written literally ({m.group(1).strip()}) — corners come "
+                    "from the host's --radius-* tokens")
+
+
 def main() -> int:
     check_no_comments()
     check_line_length()
@@ -1828,6 +1849,7 @@ def main() -> int:
     check_removed_composition()
     check_metro_contract()
     check_wiki_map()
+    check_host_geometry()
     check_no_native_title_dom()
     check_health_text_table()
     check_retired_finding()

@@ -665,7 +665,7 @@ if (!runsDelta || !/^▲/.test(runsDelta.mark) || runsDelta.dir !== 'flat') {
   fail(`a RISE on Runs is painted as news though nothing is said about runs: ${JSON.stringify(runsDelta)}`)
 }
 // ONE TYPE SCALE: every size the panel writes inline must be a step of the TYPE table.
-const TYPE_STEPS = [10.5, 11, 12, 13, 15, 16, 26]
+const TYPE_STEPS = [10.5, 11, 12, 13, 15, 16, 24]
 const inlineSizes = new Set()
 p.el.querySelectorAll('[style]').forEach(el => {
   const v = parseFloat(el.style.fontSize)

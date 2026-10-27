@@ -3,6 +3,17 @@
 Notable changes to the Wiki Automation panel. The version is carried in three places — `plugin.yaml`,
 `dashboard/manifest.json` and the top heading below — and the static audit fails when they disagree.
 
+## 2.11.2
+
+Engine `d03321b` (unchanged). The panel takes Hermes' own look.
+
+### Changed
+* **Corners are Hermes' corners.** Every card, box, button and field uses the app's radius tokens
+  (2 to 3 px) instead of the panel's own 2 to 14 px, so the panel sits in Hermes like one of its own
+  screens. A gate refuses a literal corner again.
+* **Hover and selection are Hermes' row states**, and the font sizes sit on the app's steps
+  (12.5 and 13.5 px are gone; titles are 16 and 20 px).
+
 ## 2.11.1
 
 Engine `d03321b` (unchanged). A design review of every screen (40 states, 1280 and 1024 px, dark and

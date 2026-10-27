@@ -348,6 +348,10 @@ CANARIES: list[tuple[str, Path, str | None, str, int, str]] = [
      "the sphere's read reaches metroFailures"),
     ("sphere: the canvas is a labelled image", JS, "ref: canvasRef, role: 'img'", "ref: canvasRef", 1,
      "no longer an image with a label"),
+    ("corners come from the host's radius tokens", JS, "--wa-r:var(--radius-xl,3.2px)", "--wa-r:14px", 1,
+     "a corner is written literally"),
+    ("an inline corner comes from the host's radius tokens", JS, "borderRadius: 'var(--radius-xl,3.2px)'",
+     "borderRadius: 8", 1, "a corner is written literally"),
     ("sphere: a missing page is a pressable button", JS, "className: 'wa-globe-miss', 'aria-pressed'",
      "className: 'wa-globe-miss', 'data-pressed'", 1, "no longer a pressable button"),
     # ── Metro (2.5.0): the DOM contract, the priority keys and the insert-only composer ────────────

@@ -1126,6 +1126,21 @@ Measured on this machine from the session store (Hermes' estimates, 34 harvest r
 cron session, 2026-10-15 to 10-24): $24.48 in total; a nightly run that finished cost $0.19–$1.76,
 about $0.24 per conversation on 2026-10-24.
 
+## Hermes' own geometry (2.11.2)
+
+Hermes draws its cards, menus and inputs with corners scaled by one value, `--radius-scalar` (0.2 in
+the shipped stylesheet): `--radius-md` is 2 px, `--radius-lg` 2.4 px, `--radius-xl` 3.2 px. The panel
+had ten literal radii of its own, from 2 to 14 px, so its cards read as a web page pasted into the app.
+Every corner now names one of those tokens (cards and boxes `--radius-xl`, buttons and inner boxes
+`--radius-lg`, stripes and bars `--radius-md`); the only literals left are 0, 1 px, a circle (50%)
+and a pill (99 px and up), which the host also uses. `tests/audit_static.py`
+(`check_host_geometry`) refuses any other literal, in CSS or in an inline `borderRadius`, and two
+canaries in `tests/canary_audit.py` put a 14 px card corner and an 8 px inline corner back.
+
+Hover and selection use the host's own row states (`--ui-row-hover-background`,
+`--ui-row-active-background`, which the theme mixes from its accent), not tints mixed by the panel,
+and font sizes sit on the host's steps (12, 13, 14, 16, 18, 20, 24 px).
+
 ## Version
 
 2.10.0 — a harvest run that stops says why (recorded by the plugin, shown in the panel) and its drafting cost is reported from Hermes' session store
