@@ -3,6 +3,19 @@
 Notable changes to the Wiki Automation panel. The version is carried in three places — `plugin.yaml`,
 `dashboard/manifest.json` and the top heading below — and the static audit fails when they disagree.
 
+## 2.13.0
+
+Engine `4d29c66` (unchanged from 2.12.2).
+
+### Changed
+* **The two 2.11–2.12 lines are one again.** Two branches were released in parallel from 2.11.0 and
+  share version numbers: the interface line (2.11.1, 2.11.2, 2.12.0 "Settings shows everything",
+  listed first below) and the harvest line (2.12.0 "Wiki Harvest on the modern line", 2.12.1, 2.12.2,
+  listed after it). 2.13.0 is the interface line's 2.12.0 with every harvest-line change merged in:
+  Wiki Harvest, the sphere fix that keeps the release folder clean (without it the panel locks with
+  "Installed code release is dirty"), the personal-customisation rule and `engine/source_cleanup.py`.
+  The harvest line never touched `desktop/plugin.js`, so the interface is the interface line's as is.
+
 ## 2.12.0
 
 Settings and every opened area reworked; nothing sits behind an opener any more.
@@ -54,6 +67,61 @@ light) and its fixes.
   review desk lines up with the card; a refusal carries an orange rule and a readable heading; the
   technical log uses the same corners. The alert bar's colour stripe is a straight edge, stops have
   no glow, and the Harvest caption breaks evenly at 1024 px.
+## 2.12.2
+
+Engine `4d29c66` (was `280c5db`).
+
+### Changed
+* **Which theme, skin or font is in use no longer reaches the wiki.** Both harvest stages (the reader in
+  `harvest_extract.py` and the drafting rules in `harvest_prompt.md`, "What counts") now leave out a
+  personal customisation: which theme, skin, font, colour scheme, wallpaper or layout the owner uses,
+  installs, renames or deletes, and the looks rejected on the way. The lesson learned while building one
+  (a cause, a constraint, a rule for next time) is still kept. On 2026-10-26 the nightly harvest had
+  drafted "the main app keeps the built-in mono skin" into a source because the reader counted any
+  design choice as a decision. `engine/tests/test_customisation_rule.py` keeps both stages on the same
+  words. Conversations already read are not read again.
+
+### Added
+* **`engine/source_cleanup.py`: a one-off cleanup of existing sources.** It reads every source once
+  and drafts into Review a removal-only update (each removed decision or finding named with its reason),
+  a retirement when nothing durable is left, or nothing. Code refuses a draft that rewords or adds an
+  entry; only the title and Scope may be rewritten. A source with a draft waiting in Review is skipped,
+  a source already read at the same content is not paid for again, and `--shadow <folder>` writes only
+  into that folder. Cost cap 8 USD and 45 minutes per run (`settings.json` -> `source_cleanup`). It is
+  run by hand, not scheduled.
+
+## 2.12.1
+
+Engine `280c5db` (unchanged).
+
+### Fixed
+* **The sphere no longer locks the panel.** `GET /wiki/map` loaded the engine's graph rule from the
+  installed release through Python's import loader, which wrote
+  `__pycache__/app_graph_isolated.cpython-*.pyc` into `releases/<engine sha>/`. The panel then saw a
+  release that no longer matched its install record and refused all work: "Installed code release is
+  dirty or lacks verified file identity". The rule is now compiled in memory and nothing is written
+  beside it. `tests/test_wiki_map_release_clean.py` fails on the old loader; the static audit forbids
+  an import loader in `_graph_rule`.
+
+## 2.12.0
+
+Engine `280c5db`. A new nightly job, Wiki Harvest, reads conversations one at a time.
+
+### Added
+* **Wiki Harvest (installed paused).** A script-only job at 21:30 that reads every conversation
+  changed since its last run one by one (Hermes except `tool` sessions, Codex, Claude Code,
+  Antigravity), keeps what each one said in a ledger, and merges the new decisions, findings and
+  articles into at most one draft per wiki page. Drafts appear in Review as before; nothing reaches
+  the wiki without the owner's approval. A night has a cost cap (10 USD) and a time limit (45 min);
+  what a night does not reach waits for the next. A page that already has a draft in Review is not
+  drafted again until that draft is decided. The night's report is kept in `harvest-nights/<night>/`.
+  The job is created paused: switch it on and pause Wiki Session Harvest in the panel. Wiki Session
+  Harvest stays installed, because the approval system is bound to that agent job.
+
+### Fixed
+* **The harvest cost note** said about $0.24 per conversation; the packed harvest's cost is mostly
+  fixed per run (about $0.85 a night plus $0.003 per conversation), so the per-conversation figure
+  only reflected how few conversations that night held.
 
 ## 2.11.0
 

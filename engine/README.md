@@ -12,7 +12,8 @@ this engine: they call these scripts and never keep their own copy of the logic.
 | Wiki Auto-Commit | `wiki_autocommit.py` | Commits what the app generated (`wiki/`, `raw/sources/`, `raw/evidence/`, `.llm-wiki/project.json`) once the app is idle, then checks that each mirror advanced: every git remote of the wiki, or only the remotes listed in `settings.json` → `mirrors` (`[]` turns the check off). |
 | Wiki Ingest Watch | `wiki_ingest_watch.py` | Checks that every source dropped into `raw/sources/` was actually ingested. |
 | Watch Dog | `watchdog.py` | Audits structure: page loss, broken links, duplicate names, isolated pages, project identity, broken skill references. Also checks the evidence store (hashes, passages, manifests, which source cites which folder) and flags decisions whose pinned LLM Wiki / Hermes code changed in the installed version. The agent-setup check (`drift_check.py`) describes one installation's own setup and runs only when `settings.json` declares `drift.expect`; `drift.agents` lists the agent setups installed on the machine, and a tool left out of it is not expected to have the shared components. Reports only. |
-| Wiki Session Harvest | `wiki_session_harvest.py` + `harvest_prompt.md` | Collects conversations finished since the last harvest (Hermes, Codex incl. archived, Claude Code, Antigravity) and drafts source candidates into `inbox/`. The morning report is written in the language the owner uses in those conversations. Never writes to the wiki. |
+| Wiki Session Harvest | `wiki_session_harvest.py` + `harvest_prompt.md` | Collects conversations finished since the last harvest (Hermes, Codex incl. archived, Claude Code, Antigravity) and drafts source candidates into `inbox/`. The morning report is written in the language the owner uses in those conversations. Never writes to the wiki. The approval system is bound to this agent job, so it stays installed when Wiki Harvest replaces it (pause it, do not delete it). |
+| Wiki Harvest | `harvest_night.py` (`harvest_pipeline.py`, `harvest_extract.py`, `harvest_merge.py`, `harvest_ledger.py`) | Script-only, installed paused. Reads every conversation changed since its last run one by one into `harvest-ledger.sqlite` (Hermes `tool` sessions skipped), then merges the new items into at most one draft per wiki page in `inbox/<night>/candidates/`. Cost cap and time limit per night from `settings.json` → `harvest_pipeline` (`cap_usd` 10, `minutes` 45); what a night does not reach waits for the next. The night's report and model replies: `harvest-nights/<night>/`. Never writes to the wiki. |
 
 Missed runs (PC off, gateway down) catch up once when Hermes starts again. The harvest uses one
 cursor per agent, so nothing is lost or harvested twice. An agent that is not installed is skipped and
@@ -33,6 +34,12 @@ records each run's drafting session and turn end in `inbox/<run>/attempt.json` (
   the file, pins it to a commit, hashes it and checks the passages. `--verify`, `--recheck` and
   `--normalise` maintain the whole store (logic in `evidence_store.py`).
 - `wiki_audit.py`, `app_graph_isolated.py`, `drift_check.py`: read-only checks.
+- `source_cleanup.py`: one-off, run by hand. Reads every existing source once and drafts into Review a
+  removal-only update (entries that do not count under `harvest_prompt.md` "What counts", such as which
+  theme or skin is in use), a retirement, or nothing. Code refuses any reworded or added entry. Cost cap
+  and time limit from `settings.json` -> `source_cleanup` (`cap_usd` 8, `minutes` 45); a source already
+  read at the same content is not read again (`source-cleanup/state.json`). `--shadow <folder>` writes
+  drafts and the report only into that folder.
 - Contradictions between sources: no script yet. The app's Lint → "Semantic (LLM)" option is only a
   hint (the model sees the first 500 characters of each page). Never press its Fix buttons: they
   write `## Related` blocks with folder-form links and placeholder pages straight into `wiki/`, which

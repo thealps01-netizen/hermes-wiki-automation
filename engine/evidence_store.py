@@ -35,6 +35,9 @@ TOP_KEYS = ("schema", "evidence_id", "status", "source_url", "repository", "comm
 KEEP_TOP = ("fetched_url", "accessed", "http", "live_error", "wayback_error", "wayback_save")
 STATUSES = ("captured", "archived-copy", "lost", "not-stored")
 ID_TOKEN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)+")
+# A bare date (2026-10-06) matches ID_TOKEN but is never an evidence id: pages write dates next to ids
+# and between clauses. evidence_requests refuses a new id that is one, so skipping dates hides nothing.
+DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 # Products whose installed version this machine can tell; evidence pinned there is re-checked.
 WATCHED = {"nashsu/llm_wiki": "llm-wiki", "NousResearch/hermes-agent": "hermes"}
@@ -107,7 +110,8 @@ def _without_placeholders(chunk: str) -> str:
 def cited_ids(chunks: list[str]) -> set[str]:
     """Evidence ids named by Evidence values or table cells (see _evidence_texts)."""
     return {token for chunk in chunks
-            for token in ID_TOKEN.findall(_without_placeholders(chunk).replace("`", " "))}
+            for token in ID_TOKEN.findall(_without_placeholders(chunk).replace("`", " "))
+            if not DATE.fullmatch(token)}
 
 
 def _evidence_texts(text: str) -> tuple[list[str], list[str]]:

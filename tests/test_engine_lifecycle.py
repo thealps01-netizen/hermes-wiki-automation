@@ -138,7 +138,7 @@ class EngineLifecycleTests(unittest.TestCase):
             self.assertEqual(prepared['audit_dir'], str(data))
             self.assertEqual({job['role']: job['disposition'] for job in prepared['jobs']},
                 {'autocommit': 'adopt_existing', 'ingest_watch': 'adopt_existing', 'watchdog': 'adopt_existing',
-                 'session_harvest': 'adopt_paused'})
+                 'session_harvest': 'adopt_paused', 'harvest_night': 'create_paused'})
             self.assertEqual(module.lifecycle_status(home, manifest)['state'], 'existing_unverified')
             result = module.apply_install(home, package, manifest, prepared['install_id'], prepared['plan_digest'],
                 principal='legacy-fixture')
@@ -147,10 +147,14 @@ class EngineLifecycleTests(unittest.TestCase):
             self.assertEqual((status['state'], status['current_revision']),
                 ('installed_with_existing_jobs', manifest['revision']), status)
             jobs = self.jobs_of(home)
-            self.assertEqual(set(jobs), set(mapping.values()))
+            self.assertTrue(set(mapping.values()) <= set(jobs))
             self.assertEqual({role: jobs[job_id]['enabled'] for role, job_id in mapping.items()},
                 {'autocommit': True, 'ingest_watch': True, 'watchdog': True, 'session_harvest': False})
             self.assertEqual(jobs[mapping['session_harvest']]['script'], None)
+            # The new nightly harvest arrives as a paused, script-only job; the owner switches it on.
+            new = [job for job_id, job in jobs.items() if job_id not in mapping.values()]
+            self.assertEqual([(j['name'], j['enabled'], bool(j.get('no_agent')), j['script']) for j in new],
+                             [('Wiki Harvest', False, True, 'palantir_wiki_harvest_night.py')])
 
     def test_stale_legacy_preview_is_not_stranded_in_recovery(self):
         from hermes_constants import set_hermes_home_override, reset_hermes_home_override
@@ -207,7 +211,7 @@ class EngineLifecycleTests(unittest.TestCase):
                 with patch.dict(os.environ, {'WIKI_ENGINE_TEST_DIR': ''}), use_cron_store(home):
                     jobs = api.jobs_view_route()
                     self.assertTrue(jobs['ok'], jobs)
-                    self.assertEqual(len(jobs['roles']), 4)
+                    self.assertEqual(len(jobs['roles']), 5)  # four upkeep jobs + Wiki Harvest (2.12.0)
                     self.assertTrue(all(job['live'] and job['state'] == 'paused' for job in jobs['roles']))
                     self.assertEqual({job['id'] for job in jobs['roles']},
                         {job['id'] for job in json.loads((home / 'cron/jobs.json').read_bytes())['jobs']})
@@ -266,7 +270,7 @@ class EngineLifecycleTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                     self.assertTrue((home / 'state/wiki-automation/location.json').is_file())
                     jobs = json.loads((home / 'cron/jobs.json').read_bytes())['jobs']
-                    self.assertEqual(len(jobs), 4)
+                    self.assertEqual(len(jobs), 5)  # four upkeep jobs + Wiki Harvest (2.12.0)
                     self.assertTrue(all(job['enabled'] is False for job in jobs))
                     print(result.stdout.strip())
                     from cron.jobs import use_cron_store, update_job
@@ -281,7 +285,7 @@ class EngineLifecycleTests(unittest.TestCase):
                         capture_output=True, text=True, timeout=45)
                     self.assertEqual(update.returncode, 0, update.stdout + update.stderr)
                     actual_jobs = json.loads((home / 'cron/jobs.json').read_bytes())['jobs']
-                    self.assertEqual(len(actual_jobs), 4)
+                    self.assertEqual(len(actual_jobs), 5)  # four upkeep jobs + Wiki Harvest (2.12.0)
                     self.assertTrue(next(job for job in actual_jobs if job['id'] == jobs[0]['id'])['enabled'])
                     print(update.stdout.strip())
                 finally:
@@ -315,7 +319,7 @@ class EngineLifecycleTests(unittest.TestCase):
                         prepared['plan_digest'], principal='owner-session')
                     self.assertEqual(recovered['state'], 'installed_paused')
                     jobs = json.loads((home / 'cron/jobs.json').read_bytes())['jobs']
-                    self.assertEqual(len(jobs), 4)
+                    self.assertEqual(len(jobs), 5)  # four upkeep jobs + Wiki Harvest (2.12.0)
                     self.assertTrue(all(job['enabled'] is False for job in jobs))
             print('LIFECYCLE_INTERRUPTION_CASES recovered=' + str(len(phases)))
 
@@ -424,7 +428,7 @@ class EngineLifecycleTests(unittest.TestCase):
             self.assertEqual(module.apply_install(home, test_package, manifest, prepared['install_id'], prepared['plan_digest'], principal='owner-session'), result)
             record = json.loads((home / 'state/wiki-automation/location.json').read_bytes())
             self.assertNotEqual(record['engine_dir'], record['audit_dir'])
-            self.assertEqual(len(json.loads((home / 'cron/jobs.json').read_bytes())['jobs']), 4)
+            self.assertEqual(len(json.loads((home / 'cron/jobs.json').read_bytes())['jobs']), 5)  # four upkeep jobs + Wiki Harvest (2.12.0)
             self.assertTrue(all(job['enabled'] is False for job in json.loads((home / 'cron/jobs.json').read_bytes())['jobs']))
             self.assertEqual(module.lifecycle_status(home, manifest)['state'], 'installed_paused')
             from hermes_constants import set_hermes_home_override, reset_hermes_home_override
@@ -440,7 +444,7 @@ class EngineLifecycleTests(unittest.TestCase):
             updated = module.apply_install(home, test_package, manifest, update['install_id'], update['plan_digest'], principal='owner-session')
             self.assertEqual(updated['state'], 'installed_with_existing_jobs')
             live_jobs = json.loads((home / 'cron/jobs.json').read_bytes())['jobs']
-            self.assertEqual(len(live_jobs), 4)
+            self.assertEqual(len(live_jobs), 5)  # four upkeep jobs + Wiki Harvest (2.12.0)
             self.assertTrue(next(item for item in live_jobs if item['id'] == job['id'])['enabled'])
 
     def test_incompatible_requirements_and_wrong_revision_never_stage(self):
