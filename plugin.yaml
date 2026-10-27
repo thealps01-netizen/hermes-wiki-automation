@@ -1,6 +1,6 @@
 name: wiki-automation
 label: Wiki Automation
-version: 2.12.1
+version: 2.12.2
 description: >-
   One Wiki workspace: Nexus automation map, Chronicle run journal, Folio source review and Health diagnostics.
 provides_tools:

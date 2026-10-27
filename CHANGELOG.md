@@ -3,6 +3,29 @@
 Notable changes to the Wiki Automation panel. The version is carried in three places — `plugin.yaml`,
 `dashboard/manifest.json` and the top heading below — and the static audit fails when they disagree.
 
+## 2.12.2
+
+Engine `4d29c66` (was `280c5db`).
+
+### Changed
+* **Which theme, skin or font is in use no longer reaches the wiki.** Both harvest stages (the reader in
+  `harvest_extract.py` and the drafting rules in `harvest_prompt.md`, "What counts") now leave out a
+  personal customisation: which theme, skin, font, colour scheme, wallpaper or layout the owner uses,
+  installs, renames or deletes, and the looks rejected on the way. The lesson learned while building one
+  (a cause, a constraint, a rule for next time) is still kept. On 2026-10-26 the nightly harvest had
+  drafted "the main app keeps the built-in mono skin" into a source because the reader counted any
+  design choice as a decision. `engine/tests/test_customisation_rule.py` keeps both stages on the same
+  words. Conversations already read are not read again.
+
+### Added
+* **`engine/source_cleanup.py`: a one-off cleanup of existing sources.** It reads every source once
+  and drafts into Review a removal-only update (each removed decision or finding named with its reason),
+  a retirement when nothing durable is left, or nothing. Code refuses a draft that rewords or adds an
+  entry; only the title and Scope may be rewritten. A source with a draft waiting in Review is skipped,
+  a source already read at the same content is not paid for again, and `--shadow <folder>` writes only
+  into that folder. Cost cap 8 USD and 45 minutes per run (`settings.json` -> `source_cleanup`). It is
+  run by hand, not scheduled.
+
 ## 2.12.1
 
 Engine `280c5db` (unchanged).

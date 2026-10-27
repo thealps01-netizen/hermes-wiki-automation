@@ -37,7 +37,10 @@ Two kinds count when they survive without the conversation:
 
 The following do not count: how work was done, attempts that were reverted, questions without an
 answer, facts about one day or about this machine's current state, anything already a rule in the
-wiki's AGENTS.md, and procedures.
+wiki's AGENTS.md, and procedures. Nor does a personal customisation: which theme, skin, font, colour
+scheme, wallpaper or layout the owner uses, installed, renamed or deleted, and the looks rejected
+while searching for one; keep the lesson learned while building one (a cause, a constraint, a rule for
+next time).
 Note procedures as skill candidates in the owner report, not as installed skills.
 Most conversations produce nothing. `no_candidates` is an explicit normal outcome, not failure.
 

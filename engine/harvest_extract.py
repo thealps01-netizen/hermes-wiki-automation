@@ -47,7 +47,8 @@ List every item of these types from the conversation part:
 - decision: what the owner decided, approved or rejected, stated with its content. Include closing
   verdicts ("not adopted", "nothing installed", "not reviewed", "not a candidate") and rules for the
   future ("if X is ever started, use Y"). Changing a setting, choosing a design direction or rejecting
-  a proposed feature is a decision, not stale state: write the chosen value or the rejected option;
+  a proposed feature is a decision, not stale state: write the chosen value or the rejected option
+  (a personal customisation is the exception listed below);
 - finding: a fact checked or measured in the conversation; for a problem that was solved, its root
   cause and fix, not the attempts;
 - process: a repeatable way of working the owner asked for or corrected;
@@ -60,6 +61,9 @@ Do not list:
 - a request or question whose outcome is not in this part;
 - state that goes stale: what is installed or running right now, a UI bug that was fixed, an
   intermediate plan that was not adopted (a setting the owner decided to change is a decision above);
+- a personal customisation: which theme, skin, font, colour scheme, wallpaper or layout the owner
+  uses, installed, renamed or deleted, and the looks rejected while searching for one; keep the lesson
+  learned while building one (a cause, a constraint, a rule for next time);
 - small talk, tool chatter, and anything only in the "context only" turns.
 
 For each item write `later_use`: one sentence on what a later session would do differently because of

@@ -34,6 +34,12 @@ records each run's drafting session and turn end in `inbox/<run>/attempt.json` (
   the file, pins it to a commit, hashes it and checks the passages. `--verify`, `--recheck` and
   `--normalise` maintain the whole store (logic in `evidence_store.py`).
 - `wiki_audit.py`, `app_graph_isolated.py`, `drift_check.py`: read-only checks.
+- `source_cleanup.py`: one-off, run by hand. Reads every existing source once and drafts into Review a
+  removal-only update (entries that do not count under `harvest_prompt.md` "What counts", such as which
+  theme or skin is in use), a retirement, or nothing. Code refuses any reworded or added entry. Cost cap
+  and time limit from `settings.json` -> `source_cleanup` (`cap_usd` 8, `minutes` 45); a source already
+  read at the same content is not read again (`source-cleanup/state.json`). `--shadow <folder>` writes
+  drafts and the report only into that folder.
 - Contradictions between sources: no script yet. The app's Lint → "Semantic (LLM)" option is only a
   hint (the model sees the first 500 characters of each page). Never press its Fix buttons: they
   write `## Related` blocks with folder-form links and placeholder pages straight into `wiki/`, which
