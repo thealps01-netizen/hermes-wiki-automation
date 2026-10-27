@@ -378,7 +378,7 @@ export const STATES = {
     expect: { detail: 'history', text: ['Show older runs', 'Full technical log', 'were due at'] } },
   'history-log': { conditions: { richHistory: true }, open: 'history', then: 'full-log', expect: { detail: 'history' } },
   settings: { mock: 'm-14', conditions: {}, open: 'settings',
-    expect: { detail: 'settings', text: ['Wiki folder', 'Automation files', 'Working folder'] } },
+    expect: { detail: 'settings', text: ['Wiki folder', 'Scheduled jobs', 'Engine and files'] } },
   'settings-jobs': { conditions: {}, open: 'settings', then: 'timetable', expect: { detail: 'settings' } },
   engine: { conditions: { engine: 'missing' }, expect: { alert: 'engine' } },
   'job-broken': { conditions: { jobBroken: true }, expect: { alert: 'job-broken' } },
@@ -483,7 +483,12 @@ export async function drive(state, root, api) {
     await api.click(button, 200)
   }
   if (s.then === 'full-log') await pressIn('history', 'Full technical log')
-  if (s.then === 'timetable') await pressIn('settings', 'Manage timetable')
+  if (s.then === 'timetable') {
+    // 2.12.0: the jobs are open on arrival; this state shows one job row expanded.
+    const row = root.querySelector('.wa-metro-detail[data-for="settings"] [data-sec="jobs"] .wa-job-summary')
+    if (!row) throw new Error(`state ${state}: the settings detail lists no scheduled job`)
+    await api.click(row, 200)
+  }
   if (s.then === 'fetch') await pressIn('review', 'Fetch evidence (1)')
   if (s.then === 'approve') {
     const detail = root.querySelector('.wa-metro-detail[data-for="review"]')

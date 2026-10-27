@@ -24,9 +24,8 @@
  *       Reject cannot be sent without a reason.
  *   M9. History is the m-13 list (time, job, what it did, outcome) of the last 24 hours, with
  *       `Show older runs` (re-reads a wider window) and `Full technical log` (the reused run history:
- *       KPIs, window picker, rows). Settings is the m-14 summary (wiki folder, automation files,
- *       working folder) with `Change wiki folder` and `Manage timetable`; the root, the jobs and the
- *       engine install are reached by a click (or open by themselves when they hold a fix).
+ *       KPIs, window picker, rows). Settings shows its three sections open on arrival (Wiki folder,
+ *       Scheduled jobs, Engine and files); no section sits behind an opener button (2.12.0).
  * SVG segments and the narrow (vertical) line are LAYOUT facts: `shot.cjs` measures them in Electron.
  */
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -552,20 +551,19 @@ await guard('M9', async () => {
   await click(target(host, 'settings'))
   const s = details(host)[0]
   if (s?.dataset.for !== 'settings') fail('settings: the detail did not switch to settings')
-  for (const label of ['Wiki folder', 'Automation files', 'Working folder']) {
-    if (!txt(s).includes(label)) fail(`settings: the summary lacks "${label}"`)
+  // 2.12.0: Settings shows its three sections at once; nothing sits behind an opener button.
+  for (const id of ['root', 'jobs', 'install']) {
+    const el = s?.querySelector(`[data-sec="${id}"]`)
+    if (!el || el.hidden || el.tagName === 'DETAILS') fail(`settings: the ${id} section is not shown open on arrival`)
   }
+  const heads = [...(s?.querySelectorAll('[data-sec] .g-panel-title') || [])].map(txt)
+  if (heads.join('|') !== 'Wiki folder|Scheduled jobs|Engine and files') fail(`settings: the section heads are wrong: ${heads.join('|')}`)
   for (const label of ['Change wiki folder', 'Manage timetable']) {
-    if (buttons(s, label).length !== 1) fail(`settings: no "${label}" button`)
+    if (buttons(s, label).length) fail(`settings: the retired opener "${label}" is back`)
   }
-  const shownSec = id => { const el = s?.querySelector(`[data-sec="${id}"]`); return Boolean(el) && !el.hidden }
-  if (shownSec('root') || shownSec('jobs') || shownSec('install')) fail('settings: a section is open on a healthy line before its button is pressed')
-  await click(buttons(s, 'Manage timetable')[0])
-  if (!shownSec('jobs') || !s?.querySelector('[data-sec="jobs"] .wa-job')) fail('settings: "Manage timetable" did not open the scheduled jobs (JobsCard)')
-  await click(buttons(s, 'Change wiki folder')[0])
-  if (!shownSec('root') || !/Wiki folder|wiki folder|project root|Root/i.test(txt(s.querySelector('[data-sec="root"]')))) fail('settings: "Change wiki folder" did not open the RootCard')
-  await click(s?.querySelector('.wa-metro-linkbtn'))
-  if (!shownSec('install') || !/engine|Engine/.test(txt(s.querySelector('[data-sec="install"]')))) fail('settings: the automation files value did not open the engine install (InstallCard)')
+  if (!s?.querySelector('[data-sec="jobs"] .wa-job')) fail('settings: the scheduled jobs (JobsCard) are not listed')
+  if (!/Change to/.test(txt(s?.querySelector('[data-sec="root"]')))) fail('settings: the wiki folder section lacks its Change to row')
+  if (!/Engine/.test(txt(s?.querySelector('[data-sec="install"] .wa-set-row')))) fail('settings: the engine section lacks its Engine row')
 })
 
 // ── M10 — the sphere (2.11.0): home and Wiki detail, its read never raises the alert bar ─────────

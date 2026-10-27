@@ -28,9 +28,8 @@ Nothing is submitted. An older desktop without `newChat` falls back to the activ
 2.5.0 reused the 2.3.x components as the first thing each detail showed, so History, Settings and
 the Harvest station did not look like their approved drafts (m-13, m-14, m-03). 2.5.1 shows the
 draft first and keeps every 2.3.x component one click behind the draft's own button: History's
-`Full technical log` (JobRunsPage), Settings' `Change wiki folder` (RootCard), `Manage timetable`
-(JobsCard) and the automation-files value (InstallCard). A Settings section opens by itself while it
-holds the fix for a problem, so a broken job or an unverified folder is never hidden. The History list
+`Full technical log` (JobRunsPage). Settings once did the same (`Change wiki folder`, `Manage
+timetable`, the automation-files value); 2.12.0 retired that — see "Settings shows everything". The History list
 reads the line's own 24-hour run read; `Show older runs` widens it to 7 days, then the whole history.
 
 ### Unified workspace
@@ -1125,6 +1124,29 @@ generic sentence and the cost in Harvest's "Last run" row.
 Measured on this machine from the session store (Hermes' estimates, 34 harvest runs that matched one
 cron session, 2026-10-15 to 10-24): $24.48 in total; a nightly run that finished cost $0.19–$1.76,
 about $0.24 per conversation on 2026-10-24.
+
+## Settings shows everything (2.12.0)
+
+Settings used to open on a three-row summary with `Change wiki folder`, `Manage timetable` and a
+link on the files value in front of the real sections. The owner read that as "closed places": what
+he came to change sat behind a button, and the summary repeated what the sections said. 2.12.0 drops
+the summary and the openers. The three sections (`Wiki folder`, `Scheduled jobs`, `Engine and files`)
+are open on arrival and cannot be folded; they fit on one screen at 1280 px.
+
+- **One row grammar.** A settings row is label + one-line note | value | actions on the right
+  (`SetRow`). RootCard is the saved folder, a `Change to` row (path field, Choose / Verify / Save, the
+  one primary last) and a `Find the wiki on this PC` row (scan). EngineInstall is an `Engine` row
+  (state as the note, the installed revision as the value, the update action) and an `Install into`
+  row. Free-form content (scan candidates, refusal help, the update plan) sits under the rows at the
+  same 18 px inset.
+- **The head carries the status.** Each section head ends in a chip (dot + word, tinted 16 %) or, for
+  the jobs, `N of M live`. A section that holds a fix (folder unverified, a job broken / paused /
+  missing, an engine ask, files missing) carries the 3 px accent stripe on its left edge — the same
+  signal the alert bar uses, so the eye goes there without a section opening itself.
+- **`Scheduled jobs` keeps its name.** The engine's own activation text says "Resume them separately
+  in Scheduled jobs"; that wording is mapped, never replaced, so the section it names keeps the name.
+- **An open job row is the host's selected row** (`--ui-row-active-background`) across the summary
+  and its expansion, so the two read as one block.
 
 ## Hermes' own geometry (2.11.2)
 

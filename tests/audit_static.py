@@ -1356,6 +1356,13 @@ scheme come from the theme (var(--ui-*), var(--shadow-*), var(--dt-*))")
                      root) for root in roots):
         _report("plugin.js: the page paints itself with the sidebar background — a page is a surface "
                 "(var(--ui-surface-background))")
+    # 2.12.0: the same holds for every surface INSIDE the page. Hermes paints its sidebar near-black; a
+    # card, field, pane or code block drawn with it read as a hole in the dark theme. Inner surfaces are
+    # transparent (bordered), the host's elevated surface (menus, calendars) or its inline-code tint.
+    for m in re.finditer(r"(?:(?<![-\w])background(?:-color)?|--hx-[a-z]+)\s*:\s*[^;{}]*var\(--ui-bg-sidebar\)",
+                         css_source(read(JS))):
+        _report(f"plugin.js: an inner surface is painted with the sidebar background ({m.group(0)[:60]!r}) — "
+                "use transparent, var(--ui-bg-elevated) or var(--ui-inline-code-background)")
 
 
 def check_wd_kinds(tree: ast.Module, table: dict) -> None:

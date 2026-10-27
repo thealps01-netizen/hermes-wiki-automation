@@ -140,11 +140,6 @@ try {
   if (!extra.includes(STATE)) await drive(STATE, host, { click })
   if (STATE === 'settings-setup' || STATE === 'schedule') {
     await click(target(host, 'settings'), 200)
-    // 2.5.1: Settings opens on its summary; these fixtures need the sections behind its buttons.
-    const sec = id => host.querySelector('.wa-metro-detail[data-for="settings"] [data-sec="' + id + '"]')
-    if (sec('root')?.hidden) await click(byText(host, 'Change wiki folder'), 120)
-    if (sec('jobs')?.hidden) await click(byText(host, 'Manage timetable'), 120)
-    if (STATE === 'settings-setup' && sec('install')?.hidden) await click(host.querySelector('.wa-metro-linkbtn'), 120)
   }
   if (STATE === 'settings-setup') {
     const scan = byText(host, 'Scan for candidates', false)

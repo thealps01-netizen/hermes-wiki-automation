@@ -2286,8 +2286,8 @@ for (const id of ['wa-sec-root', 'wa-sec-install', 'wa-sec-jobs']) {
 }
 if (settingsDetail?.querySelector('.wa-pend, .wa-pend-detail, .fl-desk')) fail('Settings embeds the review desk')
 if (settingsDetail?.querySelector('.pa-log, .wa-run, .wa-runs-head')) fail('Settings lists runs (runs are listed once, in History)')
-const rootCard = cardByTitle(p.host, 'Watched root') || settingsDetail?.querySelector('#wa-sec-root') || cards(p.host)[0]
-const installCard = cardByTitle(p.host, 'Install') || settingsDetail?.querySelector('#wa-sec-install')
+const rootCard = cardByTitle(p.host, 'Wiki folder') || settingsDetail?.querySelector('#wa-sec-root') || cards(p.host)[0]
+const installCard = cardByTitle(p.host, 'Engine and files') || settingsDetail?.querySelector('#wa-sec-install')
 const jobsCard = cardByTitle(p.host, 'Scheduled jobs') || settingsDetail?.querySelector('#wa-sec-jobs')
 if (!installCard) fail('the install card is missing from Settings')
 if (!jobsCard) fail('the scheduled jobs card is missing from Settings')
@@ -2495,7 +2495,7 @@ if (stub.calls.posts.length) fail('project context invalidation posted a write')
 await act(async () => projectFailure.unmount())
 
 must(txt(rootCard), ['Project root', '/srv/wiki', 'Verified', 'Choose folder…', 'Verify', 'Save',
-  'Scan for candidates', 'with no root set the scripts do not stay silent'], 'root card')
+  'Scan for candidates', 'Without a wiki folder the jobs do not stay silent'], 'root card')
 must(txt(installCard), ['Settings file', '/srv/audit/settings.json', 'Automation folder', '/srv/audit',
   'Scripts', '3 of 4'], 'install card')
 if (/Task Scheduler|Registered/.test(txt(installCard))) fail('the retired Task Scheduler row is still in the install card')
@@ -2880,8 +2880,9 @@ if (armedNow()) fail('Cancel did not close the confirmation')
 if (postsTo('/jobs/act').length) fail('Cancel reached the backend')
 await clickJobButton(jobRow('Wiki Ingest Watch'), 'Create in installation', 120)
 if (postsTo('/jobs/act').length) fail('Create wrote a native job itself instead of opening the reviewed installation')
-if (!jobsCard.closest('.wa-root')?.querySelector('details[open] #wa-sec-install')) {
-  fail('Create did not open the installation section where the reviewed plan creates the job')
+// 2.12.0: every Settings section is open; Create brings the installation section into view and focus.
+if (jobsCard.ownerDocument.activeElement !== jobsCard.closest('.wa-root')?.querySelector('#wa-sec-install')) {
+  fail('Create did not take the owner to the installation section where the reviewed plan creates the job')
 }
 // The reviewed installation creates the missing job PAUSED; the fixture stands in for that apply.
 Object.assign(stub.state.jobsState.ingest_watch, { live: true, state: 'paused', id: 'job-new' })
@@ -4157,7 +4158,7 @@ if (noRuns.host.querySelector('.wa-hb-row, .wa-hb-bar, .wa-hb-note')) fail('the 
 await act(async () => noRuns.unmount())
 
 const partial = await mount('en')
-const partialInstall = cardByTitle(partial.host, 'Install')
+const partialInstall = cardByTitle(partial.host, 'Engine and files')
 if (!partialInstall?.querySelector('[data-tip="missing: install.py"]')
   || /Task Scheduler|Registered/.test(txt(partialInstall))) {
   fail(`the install reading does not name the missing script (or names Task Scheduler): ${txt(partialInstall)}`)
@@ -4170,7 +4171,7 @@ if (unverifiedRoot.host.querySelector('.wa-metro-bar')?.dataset.alert === 'good'
   fail('an unverified root reads as good service')
 }
 if (!detailOf(unverifiedRoot.host, 'settings')) fail('Settings did not open on the unverified root')
-const unverifiedCard = cardByTitle(unverifiedRoot.host, 'Watched root')
+const unverifiedCard = cardByTitle(unverifiedRoot.host, 'Wiki folder')
 if (/Verified/.test(txt(unverifiedCard))) fail('an unverified root is presented as verified')
 await settle(120)
 
@@ -4185,10 +4186,10 @@ for (const appLocale of ['tr', 'ja']) {
   if (stub.calls.registered.length !== 1 || stub.calls.registered[0].locales.join('|') !== 'en') {
     fail(`the ${appLocale} run did not register exactly one 'en' bundle`)
   }
-  const card = cardByTitle(other.host, 'Watched root') || cards(other.host)[0]
+  const card = cardByTitle(other.host, 'Wiki folder') || cards(other.host)[0]
   must(txt(card), ['Project root', 'Choose folder…', 'Verify', 'Save', 'Scan for candidates'],
     `root card under ${appLocale}`)
-  must(txt(cardByTitle(other.host, 'Install')), ['Settings file', 'Scripts', '3 of 4'],
+  must(txt(cardByTitle(other.host, 'Engine and files')), ['Settings file', 'Scripts', '3 of 4'],
     `install card under ${appLocale}`)
   if (RAW_KEY.test(txt(other.host))) fail(`a raw key reached the screen under ${appLocale}`)
   if (other.errors.size) fail(`the panel threw under ${appLocale}: ${[...other.errors].join(' | ')}`)
@@ -4201,7 +4202,7 @@ const base = automation()
 const noRoot = await mount('en', { automation: { ...base,
   settings: { ...base.settings, project_root: null, project: { ok: false, id: null, pages: 0,
                                                               reason: 'no project root chosen' } } } })
-const nr = cardByTitle(noRoot.host, 'Watched root') || cards(noRoot.host)[0]
+const nr = cardByTitle(noRoot.host, 'Wiki folder') || cards(noRoot.host)[0]
 if (!btn(nr, 'Choose scan folder…')) fail('the "Choose scan folder…" button is missing while no root is set')
 await click(btn(nr, 'Scan for candidates'), 80)
 const nrReq = stub.calls.gets.filter(x => x.startsWith('/automation/candidates')).at(-1)
@@ -4220,7 +4221,7 @@ const miss = await mount('en', { automation: {
   audit_dir: '/srv/audit', available: false, settings: null, scripts: {}, jobs: null,
   error: 'automation folder not found'
 } })
-const missCard = cardByTitle(miss.host, 'Watched root')
+const missCard = cardByTitle(miss.host, 'Wiki folder')
 if (must(txt(missCard), ['automation folder not found'], 'missing package')) {
   const heads = [...miss.host.querySelectorAll('.wa-head, .g-panel-head')].map(h => txt(h))
   fail(`missing-package view: headings ${JSON.stringify(heads)} `
@@ -4252,7 +4253,7 @@ const CHECK_REASONS = [
     en: 'no .llm-wiki/project.json above the picked path — pick a file INSIDE the wiki folder' }
 ]
 const cm = await mount('en')
-const cmCard = cardByTitle(cm.host, 'Watched root') || cards(cm.host)[0]
+const cmCard = cardByTitle(cm.host, 'Wiki folder') || cards(cm.host)[0]
 const cmInput = cmCard.querySelector('input')
 const cmMsg = () => cmCard.querySelector('[data-tone]:not(.wa-badge)')
 const cmRaw = () => cmCard.querySelector('.wa-raw')
@@ -4318,7 +4319,7 @@ if (cm.errors.size) fail(`the panel threw on a checker reason: ${[...cm.errors].
 const base3 = automation()
 const cmRootless = await mount('en', { automation: { ...base3, settings: { ...base3.settings,
   project_root: null, project: { ok: false, id: null, pages: 0, reason: 'proje kökü seçilmemiş' } } } })
-const cmNrCard = cardByTitle(cmRootless.host, 'Watched root') || cards(cmRootless.host)[0]
+const cmNrCard = cardByTitle(cmRootless.host, 'Wiki folder') || cards(cmRootless.host)[0]
 stub.state.checker.scanRoot = 'klasör yok'
 await click(btn(cmNrCard, 'Choose scan folder…'), 120)
 if (!txt(cmNrCard.querySelector('[data-tone]:not(.wa-badge)')).includes('top-level folder not found')) {
@@ -4333,7 +4334,7 @@ await settle(120)
 //     quiet secondary actions, ONE icon-button shape
 // ===========================================================================
 const ref = await mount('en')
-const refCard = cardByTitle(ref.host, 'Watched root') || cards(ref.host)[0]
+const refCard = cardByTitle(ref.host, 'Wiki folder') || cards(ref.host)[0]
 const refInput = refCard.querySelector('input')
 const CHECK_RAW = 'wiki/ klasörü yok'
 const shape = el => {
@@ -4428,7 +4429,7 @@ await settle(120)
 // bug report can search for. It now sits in a code body under the same `as written` caption as the
 // checker's wording, with the copy affordance beside it.
 const dead = await mount('en', { throwOn: '/automation' })
-const deadCard = cardByTitle(dead.host, 'Watched root') || cards(dead.host)[0]
+const deadCard = cardByTitle(dead.host, 'Wiki folder') || cards(dead.host)[0]
 must(txt(deadCard), ['could not read the automation state'], 'failed read sentence')
 const deadRaw = deadCard.querySelector('.wa-raw')
 if (!deadRaw) fail('a failed read dropped the error text the backend returned')
@@ -4445,7 +4446,7 @@ else {
 if (dead.host.querySelector('[data-loader]')) {
   fail('a failed read left a spinner turning although nothing is loading')
 }
-const deadInstall = cardByTitle(dead.host, 'Install')
+const deadInstall = cardByTitle(dead.host, 'Engine and files')
 if (!deadInstall || !txt(deadInstall).includes('could not read the automation state')) {
   fail('the install card does not report the failed read it depends on')
 }
@@ -4478,7 +4479,7 @@ if (/Good service/i.test(txt(jobsDown.host))) fail('"Good service" while the job
 const clean = automation()
 clean.scripts = { 'a.py': true, 'b.py': true }
 const allGood = await mount('en', { automation: clean, runs: beatRuns([100, 120]) })
-const completeInstall = cardByTitle(allGood.host, 'Install')
+const completeInstall = cardByTitle(allGood.host, 'Engine and files')
 if (!completeInstall?.querySelector('[data-tip="nothing missing"]') || !txt(completeInstall).includes('2 of 2')) {
   fail('the retained install reading does not report all scripts present')
 }
@@ -4508,7 +4509,7 @@ if (!txt(stale.host.querySelector('[data-wa-station="harvest"]')).trim() || !sta
 stub.state.throwOn = null
 await openDetail(stale.host, 'settings')
 // BUSY: an action in flight is announced, not only prefixed.
-const liveRegion = cardByTitle(stale.host, 'Watched root')
+const liveRegion = cardByTitle(stale.host, 'Wiki folder')
 if (!liveRegion.querySelector('[aria-live="polite"]')) {
   fail('the root card has no live region for its messages')
 }

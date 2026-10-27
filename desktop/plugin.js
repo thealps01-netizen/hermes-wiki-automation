@@ -120,16 +120,15 @@ const BUNDLES = {
       metroSpan24h: 'last 24 hours',
       metroSpan7d: 'last 7 days',
       metroSpanAll: 'whole history',
-      metroWikiFolder: 'Wiki folder',
-      metroWikiChecked: pages => `${pages} · checked`,
-      metroWikiUnchecked: 'not verified',
-      metroFiles: 'Automation files',
+      metroWikiUnchecked: 'Not verified',
       metroFilesInPlace: (ok, total) => `${ok} of ${total} in place`,
-      metroFilesMissing: names => `missing: ${names}`,
-      metroWorkFolder: 'Working folder',
-      metroChangeFolder: 'Change wiki folder',
-      metroManageTimetable: 'Manage timetable',
-      metroFilesShow: 'Show the installation files',
+      metroFilesMissing: names => `Missing: ${names}`,
+      setNeedsYou: 'Needs you',
+      setChangeTo: 'Change to',
+      setFind: 'Find the wiki on this PC',
+      setFindNote: 'Looks for folders that hold a wiki, if the one above moved.',
+      setEngine: 'Engine',
+      setEngineInto: 'Install into',
       metroPause: 'Pause',
       metroResume: 'Resume',
       metroHistoryHead: (span, n) => plural(n, `History · ${span} · 1 run`, `History · ${span} · ${n} runs`),
@@ -342,7 +341,7 @@ const BUNDLES = {
       noCandidates: root => `no other wiki project under ${root}`,
       invalid: 'Not verified',
       ok: 'Verified',
-      loud: 'with no root set the scripts do not stay silent — they alert',
+      loud: 'Without a wiki folder the jobs do not stay silent; they raise an alert.',
       placeholder: 'full path to the wiki folder',
       working: 'working…',
       loadFailed: 'could not read the automation state',
@@ -355,7 +354,7 @@ const BUNDLES = {
       toneBad: 'Failed',
       toneQuiet: 'Nothing to report',
       unavailable: 'automation package not found on this machine (~/.llmwiki-audit)',
-      install: 'Install · engine',
+      install: 'Engine and files',
       engineMissing: 'Engine not installed',
       engineExistingUnverified: 'Existing engine found — not yet verified by this panel. Preview an update to see whether it can be adopted; nothing changes until you confirm the plan.',
       engineJobAdopt: 'adopted in place: schedule and on/off state kept; working folder, interpreter and launcher updated',
@@ -412,7 +411,7 @@ const BUNDLES = {
       auditDir: 'Automation folder',
       scripts: 'Scripts',
       jobsSection: 'Scheduled jobs',
-      rootSection: 'Watched root',
+      rootSection: 'Wiki folder',
       jobsLive: (live, paused, total) => paused ? `${live} of ${total} jobs live · ${paused} paused`
         : `${live} of ${total} jobs live`,
       jobNoId: 'No job ID',
@@ -443,7 +442,7 @@ const BUNDLES = {
       jobFailed: 'the action failed',
       jobSchedule: 'Schedule',
       jobScheduleSave: 'Save schedule',
-      jobScheduleHint: 'the scheduler fires on the schedule the STORE holds — saving rewrites it',
+      jobScheduleHint: 'Hermes runs this job on the schedule it has saved. Saving here replaces that schedule.',
       jobScheduleDone: (human, expr) => `schedule saved: ${human} (${expr})`,
       schFreq: 'Frequency',
       modeMinutes: 'Minutes',
@@ -734,6 +733,7 @@ const BUNDLES = {
       emptyRangeBody: 'No run falls in the chosen date range. Press "All" to see everything.',
       emptyMatchTitle: 'No matching runs',
       emptyMatchBody: q => `Nothing matches "${q}". Clear the filter to see all runs.`,
+      emptyPickBody: 'No run of this kind in the shown window. Pick "All" or another job to see more.',
       kpi: {
         runs: 'Runs',
         runsHint: n => `${wdPlural(n, 'row', 'rows')} in scope`,
@@ -1110,9 +1110,8 @@ const prefersReduced = () => typeof window !== 'undefined' && typeof window.matc
   window.matchMedia('(prefers-reduced-motion: reduce)').matches
 const instantMove = (job, props) => (prefersReduced() ? 'none' : move(job, props))
 
-const SURFACE = '--hx-card:var(--ui-bg-sidebar);--hx-field:var(--ui-bg-sidebar);' +
-  '--hx-raised:color-mix(in srgb,var(--ui-bg-elevated) 38%,var(--ui-bg-sidebar));' +
-  '--hx-panel:color-mix(in srgb,var(--ui-bg-elevated) 30%,var(--ui-bg-sidebar));--hx-line:var(--ui-stroke-tertiary)'
+const SURFACE = '--hx-card:transparent;--hx-field:transparent;' +
+  '--hx-raised:var(--ui-bg-elevated);--hx-panel:var(--ui-bg-elevated);--hx-line:var(--ui-stroke-tertiary)'
 
 const STYLE = `
 .wa-root{height:100%;min-height:0;overflow:auto;background:transparent;
@@ -1152,11 +1151,18 @@ const STYLE = `
 .wa-msg[data-tone="info"]{color:var(--ui-text-tertiary)}
 .wa-msg[data-tone="bad"]{color:var(--ui-red)}
 .wa-help .wa-msg{padding:0}
-.wa-help{border:1px solid var(--ui-stroke-tertiary);border-radius:var(--radius-xl,3.2px);padding:8px 12px;
-  display:grid;gap:4px;min-width:0}
-.wa-help-title{font-size:12px;font-weight:600;color:var(--ui-text-secondary)}
+.wa-help{border:0;border-left:2px solid var(--ui-stroke-primary);border-radius:0;padding:10px 14px;
+  display:grid;gap:4px;min-width:0;background:color-mix(in srgb,var(--ui-text-primary) 3%,transparent)}
+.wa-help[data-tone="bad"],.wa-help:has(.wa-bad),.wa-help:has(.wa-msg[data-tone="bad"]){border-left-color:var(--ui-red);
+  background:color-mix(in srgb,var(--ui-red) 6%,transparent)}
+.wa-help[data-tone="ok"]{border-left-color:var(--ui-green)}
+.wa-help .wa-bad,.wa-help .wa-msg[data-tone="bad"]{color:var(--ui-text-primary)}
+.wa-help-title{font-size:12px;font-weight:600;color:var(--ui-text-primary)}
 .wa-help-act{justify-self:end}
-.wa-fail .wa-help{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:6px 10px}
+.wa-fail .wa-help{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:8px 14px;
+  border-left-color:var(--ui-red);background:color-mix(in srgb,var(--ui-red) 6%,transparent)}
+.wa-desk .wa-body.wa-fail{padding:0}
+.wa-fail .wa-help .wa-fail-dot{display:none}
 .wa-fail .wa-fail-state{display:block;flex:1 1 auto;min-width:0}
 .wa-fail .wa-fail-state>div{flex-direction:row;align-items:center;gap:8px;text-align:left}
 .wa-fail .wa-fail-state p{margin:0;text-align:left;font-size:12px;line-height:18px;color:var(--ui-text-primary);
@@ -1240,8 +1246,9 @@ const STYLE = `
 .wa-root .wa-sched-save:hover{background:color-mix(in srgb,var(--ui-accent) 36%,transparent)}
 .wa-job-drift{grid-column:1 / -1;font-size:12px;color:var(--ui-orange);padding-top:2px}
 .wa-job-drift .wa-mono{color:inherit}
-.wa-confirm{display:grid;gap:8px;padding:8px 12px;border-radius:var(--radius-xl,3.2px);
-  background:color-mix(in srgb,var(--ui-orange) 8%,transparent)}
+.wa-confirm{display:grid;gap:8px;padding:10px 14px;border-radius:0;border-left:2px solid var(--ui-orange);
+  background:color-mix(in srgb,var(--ui-orange) 6%,transparent)}
+.wa-confirm.wa-sched{border-left:0;border-top:1px solid var(--ui-stroke-tertiary);background:transparent;padding:14px 0 4px}
 .wa-confirm-row{display:flex;gap:8px;align-items:center;justify-content:flex-end}
 .wa-confirm-text{font-size:12px;color:var(--ui-text-secondary)}
 .wa-cands{display:grid;gap:4px}
@@ -1343,7 +1350,7 @@ const STYLE = `
   border-left:1px solid var(--ui-stroke-primary)}
 .fl-trail li:last-child{padding-bottom:0}.fl-trail-point{width:19px;height:19px;border-radius:50%;
   border:1px solid var(--ui-stroke-primary);display:grid;place-items:center;color:var(--ui-text-secondary)}
-.fl-trail-point .codicon{font-size:12px}.fl-trail li:last-child .fl-trail-point{background:var(--ui-bg-sidebar)}
+.fl-trail-point .codicon{font-size:12px}.fl-trail li:last-child .fl-trail-point{background:var(--wa-card,var(--dt-card))}
 .fl-trail-copy{display:grid;gap:2px;min-width:0}.fl-trail-copy strong{font-size:12px;font-weight:600;line-height:1.7}
 .fl-trail-copy>span{font-size:12px;line-height:1.7;overflow-wrap:anywhere;color:var(--ui-text-secondary)}
 .fl-facts{max-height:${FOLIO_H.facts}px;overflow-y:auto;overflow-wrap:anywhere;scrollbar-width:thin}
@@ -1531,15 +1538,6 @@ const STYLE = `
 .wa-metro-run-what span{font-size:12px;color:var(--ui-text-secondary)}
 .wa-metro-run-out{display:inline-flex;gap:8px;align-items:center;justify-self:end;text-align:right;font-size:13px}
 .wa-metro-techlog{border-top:1px solid var(--ui-stroke-tertiary);padding-top:12px;min-width:0}
-.wa-metro-val{display:flex;flex-direction:column;gap:2px;min-width:0;align-items:flex-start}
-.wa-metro-path{font-weight:600;overflow-wrap:anywhere}
-.wa-metro-valnote{font-size:12px;color:var(--ui-text-secondary)}
-.wa-metro-linkbtn{all:unset;cursor:pointer;border-radius:var(--radius-lg,2.4px);text-decoration:underline dotted;text-underline-offset:3px;
-  text-decoration-color:var(--ui-text-tertiary)}
-.wa-metro-linkbtn:hover{text-decoration-color:var(--ui-text-primary)}
-.wa-metro-linkbtn:focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px}
-.wa-metro-linkbtn[data-tone="bad"]{text-decoration-color:var(--ui-red)}
-.wa-metro-sec[hidden]{display:none!important}
 .wa-metro-jobctl{display:flex;flex-direction:column;gap:10px;min-width:0}
 .wa-metro-kv{font-size:13px}
 .wa-metro-error p{margin:0;font-size:13px}
@@ -1581,7 +1579,11 @@ const STYLE = `
 .wa-approve-warn{display:flex;gap:8px;align-items:flex-start;color:var(--ui-text-secondary)}
 .wa-approve-warn .codicon{color:var(--ui-red);margin-top:1px}
 .wa-metro-bar-raw{margin-top:6px}
-.wa-desk-acts .wa-confirm{flex:1 1 100%}
+.wa-desk-acts .wa-confirm{flex:1 1 100%;order:-1;max-width:640px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.wa-desk-acts .wa-confirm>input,.wa-desk-acts .wa-confirm>[data-slot=input]{flex:1 1 280px}
+.wa-desk-acts .wa-confirm .wa-pend-acts{flex:0 0 auto}
+.wa-desk-row:has(>.wa-desk-acts>.wa-confirm){flex-wrap:wrap}
+.wa-desk-acts:has(>.wa-confirm){flex:1 1 100%}
 .wa-desk-more>summary{cursor:pointer;font-size:13px;color:var(--ui-text-secondary);display:flex;gap:6px;align-items:center;list-style:none;padding:2px 0}
 .wa-desk-more>summary::-webkit-details-marker{display:none}
 .wa-desk-more>summary .codicon{transition:${move('hover', 'transform')}}
@@ -1626,7 +1628,7 @@ const STYLE = `
 .wa-metro-dbody{padding:20px 26px}
 .wa-metro-detail[data-notch]::before{content:"";position:absolute;top:-8px;left:var(--wa-notch);width:15px;height:15px;
   box-sizing:border-box;transform:translateX(-50%) rotate(45deg);border-top-left-radius:var(--radius-md,2px);background:var(--wa-card);
-  border-left:1px solid var(--ui-stroke-secondary);border-top:1px solid var(--ui-stroke-secondary)}
+  border-left:1px solid var(--ui-stroke-primary);border-top:1px solid var(--ui-stroke-primary)}
 .wa-globe{margin:0 28px 18px;display:grid;grid-template-columns:minmax(220px,1fr) minmax(0,1.6fr);gap:12px 28px;
   padding:22px 26px;border:1px solid var(--ui-stroke-tertiary);border-radius:var(--wa-r);background:var(--wa-card);min-width:0}
 .wa-metro-dbody>.wa-globe{margin:0 0 6px;padding:0 0 16px;border:0;border-bottom:1px solid var(--ui-stroke-tertiary);border-radius:0;background:transparent}
@@ -1683,15 +1685,56 @@ const STYLE = `
   stroke:color-mix(in srgb,var(--wa-hue) 72%,var(--ui-text-primary))}
 :root:not(.dark) .wa-metro-line:not([data-state="missing"],[data-state="off"],[data-state="unread"]) .wa-metro-line-dot{
   border-color:color-mix(in srgb,var(--wa-hue) 72%,var(--ui-text-primary))}
-.wa-root .wa-metro-dbody .wa-metro-sec.g-panel{border:1px solid var(--ui-stroke-tertiary);border-radius:var(--radius-lg,2.4px);
-  background:transparent;padding:0 18px}
-.wa-root .wa-metro-dbody .wa-metro-sec.g-panel+.wa-metro-sec.g-panel{padding-top:0}
-.wa-metro-dbody .wa-metro-sec .g-panel-head{padding:16px 0 12px;border-bottom:0}
-.wa-metro-dbody .wa-metro-secbody{padding-bottom:16px}
-.wa-metro-dbody .wa-job-expanded{padding:6px 0 18px 41px}
-.wa-metro-dbody .wa-confirm:has(.wa-sched){background:color-mix(in srgb,var(--ui-text-primary) 4%,transparent);
-  border:1px solid var(--ui-stroke-tertiary);border-radius:var(--radius-lg,2.4px);padding:14px 16px}
-.wa-metro-dbody .wa-sched-preview{border-radius:var(--radius-md,2px);background:transparent}
+.wa-root .wa-metro-dbody .wa-metro-sec.g-panel{border:1px solid var(--ui-stroke-tertiary);border-radius:var(--radius-xl,3.2px);
+  background:transparent;padding:0;position:relative;overflow:hidden;gap:0}
+.wa-root .wa-metro-dbody .wa-metro-sec.g-panel+.wa-metro-sec.g-panel{padding-top:0;border-top:1px solid var(--ui-stroke-tertiary)}
+.wa-root .wa-metro-dbody .wa-metro-sec[data-need]::before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--ui-accent);z-index:1}
+.wa-metro-dbody .wa-metro-sec .g-panel-head{display:flex;align-items:center;gap:10px;padding:12px 18px;margin:0;
+  border-bottom:1px solid var(--ui-stroke-tertiary)}
+.wa-metro-dbody .wa-metro-sec .g-panel-head>.codicon{color:var(--ui-text-secondary);font-size:16px}
+.wa-metro-dbody .wa-metro-sec .g-panel-title{font-size:14px;font-weight:600;margin:0}
+.wa-metro-dbody .wa-metro-sec .g-panel-head>:last-child:not(.g-panel-title){margin-left:auto}
+.wa-metro-dbody .wa-metro-secbody{padding:0}
+.wa-metro-dbody .wa-metro-secbody .wa-body{display:block;padding:0;gap:0}
+.wa-metro-dbody .wa-metro-secbody .wa-kv{display:grid;grid-template-columns:var(--wa-set-label) minmax(0,1fr);gap:4px 20px;
+  margin:0;padding:12px 18px;font-size:13px}
+.wa-metro-dbody .wa-metro-secbody .wa-kv+.wa-kv,.wa-set-row+.wa-kv,.wa-kv+.wa-set-row,.wa-set-row+.wa-set-row,
+.wa-metro-dbody .wa-metro-secbody .wa-body>.wa-body>:first-child:not(:only-child){border-top:1px solid var(--ui-stroke-tertiary)}
+.wa-metro-dbody .wa-metro-secbody .wa-kv dt,.wa-metro-dbody .wa-metro-secbody .wa-kv>div>:first-child{font-weight:600;color:var(--ui-text-primary)}
+.wa-metro-dbody .wa-metro-sec{--wa-set-label:clamp(220px,32%,340px)}
+.wa-set-row{display:grid;grid-template-columns:var(--wa-set-label) minmax(0,1fr) auto;gap:8px 20px;align-items:center;
+  padding:12px 18px;min-height:44px}
+.wa-set-name{font-size:13px;font-weight:600;color:var(--ui-text-primary)}
+.wa-set-note{font-size:12px;line-height:1.45;color:var(--ui-text-secondary);margin-top:2px}
+.wa-set-note .wa-engine-notes{display:flex;flex-direction:column;gap:2px}
+.wa-set-value{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:13px;min-width:0}
+.wa-set-value>input{width:100%}
+.wa-set-acts{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;align-items:center}
+.wa-set-row .wa-set-value:empty{display:none}
+.wa-set-row:has(.wa-set-value:empty){grid-template-columns:minmax(0,1fr) auto}
+.wa-metro-dbody .wa-metro-secbody .wa-body>.wa-body+.wa-body{border-top:1px solid var(--ui-stroke-tertiary)}
+.wa-engine-rev{display:inline-flex;gap:8px;align-items:baseline}
+.wa-engine-next{font-size:12px;color:var(--ui-text-secondary)}
+.wa-set-chip{display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 8px;border-radius:9999px;font-size:12px;font-weight:600;
+  color:var(--ui-text-primary);background:color-mix(in srgb,var(--wa-tone) 16%,transparent);white-space:nowrap}
+.wa-set-chip::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--wa-tone)}
+.wa-set-chip[data-chip=ok]{--wa-tone:var(--ui-green)}.wa-set-chip[data-chip=ask]{--wa-tone:var(--ui-accent)}
+.wa-set-chip[data-chip=warn]{--wa-tone:var(--ui-orange)}.wa-set-chip[data-chip=bad]{--wa-tone:var(--ui-red)}
+.wa-metro-dbody .wa-metro-secbody>.wa-body>.wa-live:empty,.wa-metro-dbody .wa-metro-secbody .wa-live:empty{display:none}
+.wa-metro-dbody .wa-metro-secbody .wa-live:not(:empty),.wa-metro-dbody .wa-metro-secbody .wa-engine-plan,
+.wa-metro-dbody .wa-metro-secbody .wa-help,.wa-metro-dbody .wa-metro-secbody .wa-cands{margin:0 18px 12px}
+.wa-metro-dbody .wa-metro-secbody .wa-confirm{margin:0 18px 12px}
+.wa-metro-dbody .wa-metro-secbody .wa-job .wa-confirm{margin:8px 0 0}
+.wa-metro-dbody .wa-metro-secbody .wa-msg{padding:10px 18px;margin:0}
+.wa-metro-dbody .wa-metro-secbody .wa-msg+.wa-job,.wa-metro-dbody .wa-metro-secbody .wa-live+.wa-job{border-top:1px solid var(--ui-stroke-tertiary)}
+.wa-metro-dbody .wa-jobs-count{font-size:12px;color:var(--ui-text-secondary);margin-left:auto}
+.wa-metro-dbody .wa-job+.wa-job{border-top:1px solid var(--ui-stroke-tertiary)}
+.wa-metro-dbody .wa-job-summary{padding:10px 18px}
+.wa-metro-dbody .wa-job-summary>strong{font-size:13px;font-weight:600}
+.wa-metro-dbody .wa-job-summary-schedule{font-size:13px}
+.wa-metro-dbody .wa-job[open]>.wa-job-summary,.wa-metro-dbody .wa-job[open]>.wa-job-expanded{background:var(--ui-row-active-background)}
+.wa-metro-dbody .wa-job-expanded{padding:4px 18px 16px 59px}
+.wa-metro-dbody .wa-sched-preview{border:0;border-left:2px solid var(--ui-accent);border-radius:0;background:transparent;padding:4px 12px}
 .wa-metro-dbody .wa-path-input{border:1px solid var(--ui-stroke-secondary);border-radius:var(--radius-md,2px)}
 .wa-metro-dbody .wa-path-input::placeholder{color:var(--ui-text-tertiary);opacity:1}
 :root.dark .wa-metro-dbody .wa-sched-time::-webkit-calendar-picker-indicator{filter:invert(.85)}
@@ -2051,11 +2094,10 @@ function RootCard({ t, auto, refreshAuto }) {
     : (msg.tone === 'bad' ? t('wa.helpRefused')
       : (msg.tone === 'info' ? t('wa.helpNote') : t('wa.helpResult')))
 
-  return jsxs('div', { className: 'wa-body', 'aria-busy': busy, children: [
+  return jsxs('div', { className: 'wa-body wa-set', 'aria-busy': busy, children: [
     jsx(Stale, { error: auto?.error, t }, 'stale'),
     jsx(PanelMeta, { className: 'wa-kv', rows: [rootRow(t, current, verdict)] }, 'kv'),
-    jsxs('div', { className: 'wa-inline', children: [
-      jsx(Input, {
+    jsx(SetRow, { label: t('wa.setChangeTo'), note: forceAsk || msg ? null : t('wa.loud'), inline: true, value: jsx(Input, {
         'aria-label': t('wa.root'),
         className: 'wa-path-input',
         disabled: unread,
@@ -2064,19 +2106,22 @@ function RootCard({ t, auto, refreshAuto }) {
         size: 'sm',
         value: draft
       }, 'i'),
+    actions: [
       draftVerdict == null ? null : Status({ text: draftVerdict ? t('wa.ok') : t('wa.invalid'),
         variant: draftVerdict ? 'success' : 'destructive', badgeKey: 'dv' }),
       jsx(Button, { disabled: busy || unread, onClick: pick, size: 'sm', variant: 'outline',
         children: t('wa.pick') }, 'pick'),
-      jsx(Button, { disabled: busy || unread, onClick: () => scan(), size: 'sm', variant: 'outline',
-        children: t('wa.scan') }, 'scan'),
-      !shown ? jsx(Button, { disabled: busy || unread, onClick: pickScanRoot, size: 'sm', variant: 'outline',
-        children: t('wa.scanRootPick') }, 'scanroot') : null,
       jsx(Button, { disabled: busy || unread || !shown, onClick: verify, size: 'sm', variant: 'outline',
         children: t('wa.verify') }, 'verify'),
       jsx(Button, { disabled: busy || unread || !shown || !draft, onClick: () => save(false), size: 'sm',
         variant: 'default', children: t('wa.save') }, 'save')
     ] }, 'row'),
+    jsx(SetRow, { label: t('wa.setFind'), note: t('wa.setFindNote'), value: null, actions: [
+      jsx(Button, { disabled: busy || unread, onClick: () => scan(), size: 'sm', variant: 'outline',
+        children: t('wa.scan') }, 'scan'),
+      !shown ? jsx(Button, { disabled: busy || unread, onClick: pickScanRoot, size: 'sm', variant: 'outline',
+        children: t('wa.scanRootPick') }, 'scanroot') : null
+    ] }, 'find'),
     jsx('div', { 'aria-live': 'polite', className: 'wa-live', children: msg && !forceAsk
       ? jsxs('div', { className: 'wa-help', children: [
         jsx('div', { className: 'wa-help-title', children: head }, 'h'),
@@ -2102,7 +2147,7 @@ function RootCard({ t, auto, refreshAuto }) {
             variant: 'outline', children: t('wa.pickAgain') }, 'act')
           : null
       ] }, 'msgs')
-      : (forceAsk ? null : jsx('div', { className: 'wa-hint', children: t('wa.loud') }, 'hint')) }, 'live'),
+      : null }, 'live'),
     forceAsk
       ? jsxs('div', { className: 'wa-confirm', children: [
         jsx('span', { className: 'wa-confirm-text',
@@ -2440,33 +2485,44 @@ function EngineInstall({ t, auto, onEngineState }) {
     } catch (e) { if (matches(captured)) setMessage(errText(e)) }
     finally { if (matches(captured)) { pending.current = false; setBusy(false) } }
   }
+  const stateText = statusError ? t('wa.engineStatusFailed') : status?.state === 'missing' ? t('wa.engineMissing')
+    : status?.state === 'existing_unverified' ? t('wa.engineExistingUnverified')
+    : status?.state === 'installed_paused' ? t('wa.engineInstalled')
+    : status?.state === 'installed_with_existing_jobs' ? t('wa.engineExisting')
+    : status?.state === 'prepared' ? t('wa.enginePrepared')
+    : status?.state === 'applying' ? t('wa.engineApplying')
+    : status?.state === 'recovery_required' ? t('wa.engineRecovery')
+    : status?.state === 'unavailable' ? t('wa.engineUnavailable') : t('wa.working')
+  const installed = ['installed_paused', 'installed_with_existing_jobs'].includes(status?.state)
+  const ships = installed ? engineUpdate(status) : null
   return jsxs('div', { className: 'wa-body wa-engine', children: [
-    jsx('span', { children: statusError ? t('wa.engineStatusFailed') : status?.state === 'missing' ? t('wa.engineMissing')
-      : status?.state === 'existing_unverified' ? t('wa.engineExistingUnverified')
-      : status?.state === 'installed_paused' ? t('wa.engineInstalled')
-      : status?.state === 'installed_with_existing_jobs' ? t('wa.engineExisting')
-      : status?.state === 'prepared' ? t('wa.enginePrepared')
-      : status?.state === 'applying' ? t('wa.engineApplying')
-      : status?.state === 'recovery_required' ? t('wa.engineRecovery')
-      : status?.state === 'unavailable' ? t('wa.engineUnavailable') : t('wa.working') }, 'state'),
-    jsx('p', { className: 'wa-hint', children: t('wa.enginePickHint') }, 'hint'),
-    jsx(Input, { 'aria-label': t('wa.engineRootLabel'), className: 'wa-mono', disabled: busy || !identityReady,
-      value: root, placeholder: t('wa.placeholder'), size: 'sm', onChange: event => {
-        if (!displayedMatches()) return
-        invalidate(false); setChosen(event.target.value); setMessage(''); readStatus()
-      } }, 'root'),
-    jsxs('div', { className: 'wa-inline', children: [
+    jsx(SetRow, { label: t('wa.setEngine'), note: jsxs('span', { className: 'wa-engine-notes', children: [
+      jsx('span', { children: stateText }, 'state'),
+      installed ? jsx('span', { children: status.state === 'installed_paused' ? t('wa.engineActivate')
+        : t('wa.engineExistingNote') }, 'activation') : null,
+      ships ? jsx('span', { children: t('wa.engineShips', ships.selected) }, 'ships') : null
+    ] }), value: installed ? jsxs('span', { className: 'wa-engine-rev', children: [
+      jsx(Tip, { label: status.current_revision, children: jsx('span', { className: 'wa-mono',
+        children: String(status.current_revision || '').slice(0, 7) }) }, 'revision'),
+      ships ? jsx('span', { className: 'wa-engine-next', children: `→ ${String(ships.selected).slice(0, 7)}` }, 'next') : null
+    ] }) : null, actions: [
       recoverable ? jsx(Button, { size: 'sm', variant: 'outline', disabled: busy || statusBusy,
         onClick: reviewRecovery, children: t('wa.engineRecoveryReview') }, 'review-recovery') : null,
-      jsx(Button, { size: 'sm', variant: 'outline', disabled: busy || !identityReady, onClick: pick,
-        children: t('wa.engineChoose') }, 'pick'),
       jsx(Button, { size: 'sm', variant: 'outline', disabled: busy || !engineAbsolute(root) || !allowed,
         onClick: prepare, children: status?.current_revision || status?.state === 'existing_unverified'
           ? t('wa.engineUpdate') : t('wa.enginePreview') }, 'preview'),
       statusError || ['applying', 'recovery_required', 'unavailable'].includes(status?.state)
         ? jsx(Button, { size: 'sm', variant: 'outline', disabled: busy || statusBusy,
           onClick: retryStatus, children: t('wa.engineRetryStatus') }, 'retry') : null
-    ] }, 'actions'),
+    ] }, 'state'),
+    jsx(SetRow, { label: t('wa.setEngineInto'), note: t('wa.enginePickHint'), inline: true,
+      value: jsx(Input, { 'aria-label': t('wa.engineRootLabel'), className: 'wa-mono wa-path-input',
+        disabled: busy || !identityReady, value: root, placeholder: t('wa.placeholder'), size: 'sm', onChange: event => {
+          if (!displayedMatches()) return
+          invalidate(false); setChosen(event.target.value); setMessage(''); readStatus()
+        } }, 'root'),
+      actions: [jsx(Button, { size: 'sm', variant: 'outline', disabled: busy || !identityReady, onClick: pick,
+        children: t('wa.engineChoose') }, 'pick')] }, 'into'),
     plan ? jsxs('div', { className: 'wa-engine-plan', role: 'region', tabIndex: 0,
       'aria-label': plan.state === 'recovery_prepared' ? t('wa.engineRecoveryLabel') : t('wa.enginePlanLabel'), children: [
       plan.state === 'recovery_prepared' ? jsxs('div', { children: [
@@ -2507,12 +2563,6 @@ function EngineInstall({ t, auto, onEngineState }) {
         }, children: t('wa.engineDiscard') }, 'discard')
       ] }, 'confirm-row')
     ] }, 'plan') : null,
-    ['installed_paused', 'installed_with_existing_jobs'].includes(status?.state) ? jsxs('div', { children: [
-      jsx(Tip, { label: status.current_revision, children: jsx('span', { className: 'wa-mono',
-        children: String(status.current_revision || '').slice(0, 7) }) }, 'revision'),
-      jsx('p', { children: status.state === 'installed_paused' ? t('wa.engineActivate') : t('wa.engineExistingNote') }, 'activation'),
-      engineUpdate(status) ? jsx('p', { children: t('wa.engineShips', engineUpdate(status).selected) }, 'ships') : null
-    ] }, 'installed') : null,
     busy || statusBusy ? jsx(Loading, {}, 'pending') : null,
     statusError ? jsx(ErrorState, { description: statusError }, 'status-error') : null,
     jsx('div', { role: 'status', 'aria-live': 'polite', children: busy ? t('wa.working') : message }, 'message')
@@ -2520,7 +2570,7 @@ function EngineInstall({ t, auto, onEngineState }) {
 }
 
 function InstallCard({ t, auto, onEngineState }) {
-  return jsxs('div', { children: [jsx(EngineInstall, { t, auto, onEngineState }, 'engine'),
+  return jsxs('div', { className: 'wa-body', children: [jsx(EngineInstall, { t, auto, onEngineState }, 'engine'),
     auto?.data?.available || auto?.error && !auto?.data
       ? jsx(InstallationFilesCard, { t, auto }, 'files') : null] })
 }
@@ -5079,9 +5129,19 @@ function HistoryDetail({ t, model, reads, onClose }) {
   ] }, 'history')
 }
 
+function SetRow({ label, note, value, actions, inline }) {
+  return jsxs('div', { className: 'wa-set-row', children: [
+    jsxs('div', { className: 'wa-set-label', children: [
+      jsx('div', { className: 'wa-set-name', children: label }, 'name'),
+      note ? jsx('div', { className: 'wa-set-note', children: note }, 'note') : null
+    ] }, 'label'),
+    jsx('div', { className: 'wa-set-value', children: value }, 'value'),
+    actions ? jsx('div', { className: inline ? 'wa-set-acts wa-inline' : 'wa-set-acts', children: actions }, 'acts') : null
+  ] })
+}
+
 function SettingsDetail({ t, reads, model, jumpTo, onJumped, onClose, folded }) {
   const { auto, jobs, engine } = reads
-  const [shown, setShown] = useState({})
   const [reveal, setReveal] = useState(null)
   const info = auto.data || null
   const settings = info?.settings || null
@@ -5096,9 +5156,6 @@ function SettingsDetail({ t, reads, model, jumpTo, onJumped, onClose, folded }) 
       || roles.some(row => !row.live || row.state === 'paused' || !row.target?.ok),
     install: Boolean(model?.engineAsk) || missing.length > 0
   }
-  const open = id => (id in shown ? shown[id] : needs[id])
-  const flip = id => setShown(prev => ({ ...prev, [id]: !open(id) }))
-  const jump = id => { setShown(prev => ({ ...prev, [id]: true })); setReveal({ id }) }
   useEffect(() => {
     if (!reveal) return
     const target = document.getElementById(`wa-sec-${reveal.id}`)
@@ -5107,55 +5164,38 @@ function SettingsDetail({ t, reads, model, jumpTo, onJumped, onClose, folded }) 
   }, [reveal])
   useEffect(() => {
     if (!jumpTo) return
-    jump(jumpTo)
+    setReveal({ id: jumpTo })
     onJumped?.()
   }, [jumpTo])
   const count = roles.length ? t('wa.jobsLive', roles.filter(r => r.live && r.state !== 'paused').length,
     roles.filter(r => r.live && r.state === 'paused').length, roles.length) : ''
-  const section = (id, heading, body, meta) => jsxs('details', { className: 'wa-card g-panel wa-metro-sec', open: true,
-    hidden: !open(id) || undefined, 'data-sec': id, children: [
-      jsxs('summary', { className: 'g-panel-head', children: [
+  const chip = (tone, text) => jsx('span', { className: 'wa-set-chip', 'data-chip': tone, children: text }, 'chip')
+  const chips = {
+    root: info ? (settings?.project?.ok === true ? chip('ok', t('wa.ok')) : chip('warn', t('wa.metroWikiUnchecked'))) : null,
+    jobs: count ? jsx('span', { className: 'wa-jobs-count', children: count }, 'meta') : null,
+    install: info ? (missing.length ? chip('bad', t('wa.metroFilesMissing', missing.join(', ')))
+      : (model?.engineAsk ? chip('ask', t('wa.setNeedsYou')) : chip('ok', t('wa.metroFilesInPlace', inPlace, total))))
+      : null
+  }
+  const section = (id, glyph, heading, body) => jsxs('div', { className: 'wa-card g-panel wa-metro-sec',
+    'data-sec': id, 'data-need': needs[id] ? 'true' : undefined, children: [
+      jsxs('div', { className: 'g-panel-head', children: [
+        icon(glyph),
         jsx('h2', { className: 'g-panel-title', id: `wa-h-${id}`, children: heading }, 'heading'),
-        meta ? jsx('span', { className: 'wa-jobs-count', children: meta }, 'meta') : null
+        chips[id]
       ] }, 'summary'),
     jsx('section', { 'aria-labelledby': `wa-h-${id}`, className: 'wa-metro-secbody', id: `wa-sec-${id}`,
       tabIndex: -1, children: body }, 'body')
   ] }, id)
-  const project = settings?.project || {}
-  const pages = project.pages
-  const facts = info ? [
-    { label: t('wa.metroWikiFolder'), value: jsxs('span', { className: 'wa-metro-val', children: [
-      jsx('span', { className: 'wa-mono wa-metro-path', children: settings?.project_root || '—' }, 'path'),
-      jsx('span', { className: 'wa-metro-valnote', children: settings?.project?.ok === true
-        ? t('wa.metroWikiChecked', typeof pages === 'number' ? t('wa.metroPages', pages) : t('wa.metroPagesUnknown'))
-        : txReason(project.reason, project.reason_source, t)?.text
-          || t('wa.metroWikiUnchecked') }, 'note')
-    ] }) },
-    { label: t('wa.metroFiles'), value: total ? jsxs('span', { className: 'wa-metro-val', children: [
-      jsx('button', { type: 'button', className: 'wa-metro-linkbtn', 'data-tone': missing.length ? 'bad' : undefined,
-        'aria-expanded': open('install'), 'aria-label': t('wa.metroFilesShow'), onClick: () => flip('install'),
-        children: t('wa.metroFilesInPlace', inPlace, total) }, 'files'),
-      missing.length ? jsx('span', { className: 'wa-metro-valnote', children: t('wa.metroFilesMissing', missing.join(', ')) },
-        'missing') : null
-    ] }) : '—' },
-    { label: t('wa.metroWorkFolder'), value: jsx('span', { className: 'wa-mono wa-metro-path',
-      children: info.audit_dir || settings?.audit_dir || '—' }) }
-  ] : []
   return jsxs(MetroDetail, { t, id: 'settings', glyph: 'gear', heading: t('wa.metroSettings'), onClose, folded,
     children: [
     auto.error && !info ? jsx(Failure, { t, text: t('wa.loadFailed'), detail: auto.error }, 'failed') : null,
     !info && !auto.error ? jsx(Loading, {}, 'loading') : null,
-    info ? jsx(PanelMeta, { className: 'wa-kv wa-metro-kv', rows: facts }, 'facts') : null,
-    jsxs('div', { className: 'wa-metro-acts', children: [
-      jsx(Button, { className: 'wa-metro-folderbtn', variant: 'outline', 'aria-expanded': open('root'),
-        onClick: () => flip('root'), children: t('wa.metroChangeFolder') }, 'root'),
-      jsx(Button, { className: 'wa-metro-timetable', variant: 'outline', 'aria-expanded': open('jobs'),
-        onClick: () => flip('jobs'), children: t('wa.metroManageTimetable') }, 'jobs')
-    ] }, 'acts'),
-    section('root', t('wa.rootSection'), jsx(RootCard, { t, auto, refreshAuto: auto.refresh }, 'card')),
-    section('jobs', t('wa.jobsSection'), jsx(JobsCard, { t, jobs, auto, onInstall: () => jump('install') }, 'card'),
-      count),
-    section('install', t('wa.install'), jsx(InstallCard, { t, auto, onEngineState: () => engine.refresh() }, 'card'))
+    section('root', 'folder', t('wa.rootSection'), jsx(RootCard, { t, auto, refreshAuto: auto.refresh }, 'card')),
+    section('jobs', 'calendar', t('wa.jobsSection'),
+      jsx(JobsCard, { t, jobs, auto, onInstall: () => setReveal({ id: 'install' }) }, 'card')),
+    section('install', 'tools', t('wa.install'),
+      jsx(InstallCard, { t, auto, onEngineState: () => engine.refresh() }, 'card'))
   ] }, 'settings')
 }
 
@@ -5445,6 +5485,11 @@ const WD_STYLE = `
 .pa-clear-ask{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 12px 8px;
   font-size:${TYPE.caption}px;line-height:1.45;color:var(--ui-text-secondary)}
 .pa-clear-ask p{margin:0;flex:1 1 260px;min-width:0}
+.pa-clear-note{padding:2px 12px 8px;font-size:${TYPE.caption}px;color:var(--ui-text-secondary)}
+.pa-chronicle .pa-clear-ask,.pa-chronicle .pa-clear-note{margin:0;padding:12px 18px;gap:8px 12px;font-size:${TYPE.body}px;
+  line-height:1.5;color:var(--ui-text-primary);border-bottom:1px solid var(--ui-stroke-tertiary);
+  box-shadow:inset 3px 0 0 var(--ui-orange);background:color-mix(in srgb,var(--ui-orange) 6%,transparent)}
+.pa-chronicle .pa-clear-note{box-shadow:inset 3px 0 0 var(--ui-accent);background:transparent}
 @container (max-width: 470px){
 .pa-act-row,.pa-act-axis{grid-template-columns:96px minmax(0,1fr)}
 }
@@ -5518,14 +5563,14 @@ const WD_STYLE = `
   background:color-mix(in srgb, var(--ui-accent) 18%, transparent);color:var(--ui-text-primary)}
 @media (prefers-reduced-motion: reduce){.pa-sel-ico{transition:none}}
 .pa-pop{position:absolute;z-index:20;top:32px;left:0;min-width:100%;padding:4px;box-sizing:border-box;
-  border-radius:var(--radius-xl,3.2px);border:1px solid var(--ui-stroke-primary);background:var(--hx-raised);
+  border-radius:var(--radius-xl,3.2px);border:1px solid var(--ui-stroke-secondary);background:var(--hx-raised);
   box-shadow:var(--shadow-md);display:flex;flex-direction:column;gap:1px}
 .pa-pop[data-align="right"]{left:auto;right:0}
 .pa-opt{display:flex;align-items:center;gap:8px;width:100%;height:26px;padding:0 8px;box-sizing:border-box;
   border:0;background:none;font:inherit;font-size:${TYPE.body}px;color:var(--ui-text-secondary);cursor:pointer;
   border-radius:var(--radius-lg,2.4px);text-align:left;white-space:nowrap}
-.pa-opt:hover{background:var(--ui-control-hover-background);color:var(--ui-text-primary)}
-.pa-opt[data-on="1"]{color:var(--ui-text-primary)}
+.pa-opt:hover{background:var(--ui-row-hover-background);color:var(--ui-text-primary)}
+.pa-opt[data-on="1"]{color:var(--ui-text-primary);background:var(--ui-row-active-background)}
 .pa-opt-n{margin-left:auto;font-size:${TYPE.caption}px;color:var(--ui-text-quaternary);
   font-variant-numeric:tabular-nums}
 .pa-check{flex:none;width:14px;height:14px;border-radius:var(--radius-lg,2.4px);border:1px solid var(--hx-line);
@@ -5534,7 +5579,7 @@ const WD_STYLE = `
   color:var(--dt-primary-foreground)}
 .pa-pop-sep{height:1px;margin:3px 2px;background:var(--ui-stroke-secondary)}
 .pa-cal{position:absolute;z-index:20;top:34px;left:0;padding:8px;border-radius:var(--radius-xl,3.2px);
-  border:1px solid var(--ui-stroke-primary);background:var(--hx-raised);
+  border:1px solid var(--ui-stroke-secondary);background:var(--hx-raised);
   box-shadow:var(--shadow-md)}
 .pa-cal-head{display:flex;align-items:center;gap:4px;margin-bottom:6px}
 .pa-cal-wd{display:grid;grid-template-columns:repeat(7,24px);gap:2px;margin-bottom:3px}
@@ -5550,17 +5595,18 @@ const WD_STYLE = `
 .pa-chronicle .pa-topbar{padding:28px var(--wa-gutter,28px) 0!important;align-items:flex-start!important}
 .pa-chronicle .pa-title{font-size:${TYPE.heading}px!important;
   font-weight:600!important;letter-spacing:-.025em!important}
-.pa-chronicle .pa-sec{margin:16px var(--wa-gutter,28px) 0;border-radius:var(--radius-xl,3.2px);background:var(--ui-bg-sidebar)}
-.pa-chronicle .pa-sectitle{padding:13px 18px!important;gap:6px 12px;background:var(--ui-bg-sidebar)}
+.pa-chronicle .pa-sec{margin:16px var(--wa-gutter,28px) 0;border-radius:var(--radius-xl,3.2px);background:transparent}
+.pa-chronicle .pa-sectitle{padding:13px 18px!important;gap:6px 12px;background:transparent}
 .pa-chronicle .pa-secmeta{color:var(--ui-text-secondary)}
 .pa-chronicle .pa-seg{border:0;border-radius:var(--radius-lg,2.4px);background:transparent;padding:0;gap:5px;height:auto}
 .pa-chronicle .pa-seg button{padding:6px 9px;height:30px;border:1px solid transparent;border-radius:var(--radius-lg,2.4px);
   font-size:${TYPE.caption}px;background:transparent;color:var(--ui-text-secondary)}
-.pa-chronicle .pa-seg button[aria-pressed="true"]{border-color:var(--ui-stroke-primary);
-  background:var(--hx-raised);color:var(--ui-text-primary)}
+.pa-chronicle .pa-seg button:hover{background:var(--ui-row-hover-background)}
+.pa-chronicle .pa-seg button[aria-pressed="true"]{border-color:transparent;
+  background:var(--ui-row-active-background);color:var(--ui-text-primary)}
 .ch-status{display:flex;flex-wrap:wrap;gap:6px;padding:16px 24px 0}
 .ch-journal{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(280px,1fr);min-width:0;align-items:stretch;
-  background:var(--ui-bg-sidebar)}
+  background:transparent}
 .pa-root .ch-scroll{height:auto;max-height:${H.logScroll}px;overflow-y:auto;overflow-x:hidden;
   padding:15px 18px!important;scrollbar-width:thin;overscroll-behavior:contain;container-type:normal}
 .pa-root .pa-log.ch-run{position:relative;isolation:isolate;display:grid;
@@ -5576,7 +5622,7 @@ const WD_STYLE = `
 .pa-root .ch-run:hover:after{border-color:var(--ui-stroke-primary);background:var(--hx-raised)}
 .pa-root .ch-run:focus-visible{outline:2px solid var(--ui-accent);outline-offset:-2px}
 .ch-point{display:grid;place-items:center;width:24px;height:24px;box-sizing:border-box;border-radius:50%;
-  border:1px solid var(--ui-stroke-primary);background:var(--ui-bg-sidebar);color:var(--ui-text-secondary)}
+  border:1px solid var(--ui-stroke-primary);background:var(--wa-card,var(--dt-card));color:var(--ui-text-secondary)}
 .ch-point[data-status="completed"]{border-color:color-mix(in srgb,var(--ui-green) 70%,var(--ui-stroke-primary))}
 .ch-point[data-status="failed"]{border-color:color-mix(in srgb,var(--ui-red) 70%,var(--ui-stroke-primary))}
 .ch-point[data-status="claimed"],.ch-point[data-status="running"]{
@@ -5605,7 +5651,7 @@ const WD_STYLE = `
   font-size:${TYPE.caption}px;color:var(--ui-text-secondary)}
 .ch-caret{color:var(--ui-text-secondary)}
 .ch-journal .pa-drawer{position:static;width:auto;height:auto;min-height:${H.logScroll}px;min-width:0;opacity:1;transform:none;
-  transition:none;box-shadow:none;border-left:1px solid var(--ui-stroke-primary);background:var(--hx-raised)}
+  transition:none;box-shadow:none;border-left:1px solid var(--ui-stroke-primary);background:transparent}
 .ch-inspector .pa-drawer-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px 10px;
   padding:23px 24px 20px;border:0;background:transparent;flex-shrink:0}
 .ch-inspector-label{display:flex;align-items:center;gap:8px;font-size:${TYPE.caption}px;
@@ -5637,7 +5683,7 @@ const WD_STYLE = `
   font-family:var(--dt-font-mono,monospace);font-size:${TYPE.caption}px;line-height:1.4;
   color:var(--ui-text-secondary);font-variant-numeric:tabular-nums}
 .ch-duration-row time{font-family:var(--dt-font-mono,monospace)}
-.ch-duration-track{display:block;height:8px;background:var(--ui-bg-sidebar);border-radius:var(--radius-md,2px);overflow:hidden}
+.ch-duration-track{display:block;height:8px;background:var(--ui-stroke-tertiary);border-radius:var(--radius-md,2px);overflow:hidden}
 .ch-duration-track i{display:block;height:100%;background:var(--ui-text-secondary);border-radius:var(--radius-md,2px)}
 .ch-duration-row[data-status="completed"] .ch-duration-track i{background:var(--ui-green)}
 .ch-duration-row[data-status="failed"] .ch-duration-track i{background:var(--ui-red)}
@@ -5651,19 +5697,23 @@ const WD_STYLE = `
 .ch-technical>summary{cursor:pointer;min-height:26px;line-height:26px;color:var(--ui-text-secondary)}
 .ch-technical>summary:focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px}
 .ch-technical-body{display:flex;flex-direction:column;gap:20px;padding-top:16px;min-width:0}
+.ch-inspector .pa-findlist [data-panel-row]{height:auto;min-height:${H.findRow}px;padding-top:6px;padding-bottom:6px}
+.ch-inspector .pa-findlist .pa-badge{max-width:100%!important;white-space:normal;text-align:left}
+.ch-inspector .pa-find:has(>.pa-findbody) [data-panel-row] .pa-drawer-txt{display:none}
+.wa-shell .ch-technical .pa-findbody{padding:4px calc(var(--wa-pad) + 2px) 14px}
 .ch-inspector .pa-kv{overflow-wrap:anywhere;color:var(--ui-text-primary)}
 .ch-inspector .pa-kv dt,.ch-inspector .pa-drawer-sec>[data-slot="panel-section-label"]{
   color:var(--ui-text-secondary)}
 .ch-inspector .pa-kv dd{color:var(--ui-text-primary)}
-.ch-inspector .pa-raw{max-height:192px;background:var(--ui-bg-sidebar);color:var(--ui-text-secondary);
+.ch-inspector .pa-raw{max-height:192px;background:var(--ui-inline-code-background);color:var(--ui-text-secondary);
   font-size:${TYPE.caption}px;line-height:1.6;overflow:auto}
 .ch-inspector .pa-body-fail,.ch-inspector .pa-copy-fail{margin:6px 0;font-size:${TYPE.caption}px;
   line-height:1.5;color:var(--ui-text-primary);border-left:2px solid var(--ui-red);padding-left:8px}
 .ch-inspector .pa-drawer-txt,.ch-inspector .pa-quote,.ch-inspector .pa-action{color:var(--ui-text-secondary)}
-.ch-inspector .pa-action,.ch-inspector .pa-quote{background:var(--ui-bg-sidebar)}
-.ch-inspector .pa-badge[data-tone]{color:var(--ui-text-primary);background:var(--ui-bg-sidebar)}
+.ch-inspector .pa-action,.ch-inspector .pa-quote{background:var(--ui-inline-code-background)}
+.ch-inspector .pa-badge[data-tone]{color:var(--ui-text-primary);background:var(--ui-inline-code-background)}
 .ch-inspector-empty{height:${H.logScroll}px;box-sizing:border-box;border-left:1px solid var(--ui-stroke-primary);
-  padding:24px;display:grid;align-content:start;min-width:0;background:var(--hx-raised)}
+  padding:24px;display:grid;align-content:center;justify-items:center;text-align:center;min-width:0;background:transparent}
 @container (max-width:1080px){
   .ch-journal{grid-template-columns:minmax(0,1.8fr) minmax(265px,1fr)}
   .pa-root .pa-log.ch-run{grid-template-columns:28px 64px minmax(0,1fr) auto 10px;gap:9px}
@@ -5734,7 +5784,8 @@ const WD_STYLE = `
 .pa-health .pa-fr-head{grid-column:1;align-self:end}.pa-health .pa-fr-sum{grid-column:1;align-self:start}
 .pa-health .pa-orbs{grid-column:2;grid-row:1/3;align-self:center;justify-content:flex-end}
 .pa-health .pa-fr-cap{color:var(--ui-text-secondary)}.pa-health .pa-fr-body{gap:9px}
-.pa-health .pa-orb{border-radius:var(--radius-lg,2.4px);background:var(--ui-bg-sidebar);padding:6px 9px}
+.pa-health .pa-orb[aria-pressed="true"]{background:var(--ui-row-active-background);border-color:var(--ui-stroke-primary)}
+.pa-health .pa-orb{border-radius:var(--radius-lg,2.4px);background:transparent;padding:6px 9px}
 .pa-health .pa-orb:hover{background:var(--ui-control-hover-background)}
 .pa-health>.pa-kpis{padding:0!important;margin:20px 0 0;gap:0!important;border:1px solid var(--ui-stroke-primary);border-radius:var(--radius-xl,3.2px);overflow:hidden}
 .pa-health .pa-kpi,.pa-health .pa-kpi[data-state]{border:0;border-right:1px solid var(--ui-stroke-primary);border-radius:0;background:transparent;padding:12px 16px;overflow:visible}
@@ -5743,10 +5794,10 @@ const WD_STYLE = `
 .pa-health .pa-spark rect[fill="var(--ui-purple)"]{fill:var(--ui-text-secondary)}
 .pa-health>.pa-filters{padding:0!important;margin:24px 0 0;gap:10px!important}
 .pa-health .pa-filters-row>input{border-radius:var(--radius-lg,2.4px)!important}
-.pa-health .pa-sel,.pa-health .pa-dateface{border-radius:var(--radius-lg,2.4px);background:var(--ui-bg-sidebar)}
+.pa-health .pa-sel,.pa-health .pa-dateface{border-radius:var(--radius-lg,2.4px);background:transparent}
 .pa-health .pa-filters .pa-seg{height:auto;border:0;border-radius:0;background:transparent;padding:0;gap:5px}
 .pa-health .pa-filters .pa-seg button{height:30px;padding:6px 9px;border:1px solid transparent;border-radius:var(--radius-lg,2.4px);font-size:${TYPE.caption}px;background:transparent}
-.pa-health .pa-filters .pa-seg button[aria-pressed="true"]{border-color:var(--ui-stroke-primary);background:var(--hx-raised);color:var(--ui-text-primary)}
+.pa-health .pa-filters .pa-seg button[aria-pressed="true"]{border-color:transparent;background:var(--ui-row-active-background);color:var(--ui-text-primary)}
 .pa-health>.pa-sec>.pa-chart{padding:6px 0 8px;background:transparent}.pa-health .pa-bar{background:var(--ui-text-secondary)}
 .pa-health .pa-bar-col[data-zero="0"] .pa-bar-day{border-top-color:var(--ui-text-secondary)}
 .pa-health .pa-act{margin:0 0 8px;padding:7px 0;border:0;border-radius:0;background:transparent}
@@ -5769,7 +5820,7 @@ const WD_STYLE = `
 .pa-chronicle .pa-readline{line-height:1.5}
 .pa-chronicle .pa-stale{margin:10px var(--wa-gutter,28px) 0;padding:8px 0!important;color:var(--ui-text-primary)!important;border-bottom:1px solid var(--ui-red)}
 .pa-chronicle .pa-filters-row>input{border-radius:var(--radius-lg,2.4px)!important}.pa-chronicle .pa-sel,.pa-chronicle .pa-dateface{border-radius:var(--radius-lg,2.4px)}
-.pa-chronicle .pa-clear-open{border:1px solid var(--ui-stroke-primary);border-radius:var(--radius-lg,2.4px);background:var(--ui-bg-sidebar);color:var(--ui-text-primary)}
+.pa-chronicle .pa-clear-open{border:1px solid var(--ui-stroke-primary);border-radius:var(--radius-lg,2.4px);background:transparent;color:var(--ui-text-primary)}
 .pa-chronicle .pa-clear-open:not(:disabled):hover{background:var(--ui-control-hover-background)}
 .pa-chronicle .ch-time{gap:5px}.pa-chronicle .ch-description{gap:6px}
 .pa-chronicle .ch-inspector-label,.pa-chronicle .ch-duration-section>p,.pa-chronicle .ch-trace-note{line-height:1.7}
@@ -6145,7 +6196,7 @@ function agoShort(seconds, t) {
 const liveInScope = (data, present) => (data?.registry || [])
   .filter(job => job.live && present.includes(job.id))
 
-function Freshness({ t, data, shown, present, nameOf, onPick }) {
+function Freshness({ t, data, shown, present, nameOf, onPick, picked = [] }) {
   const now = Date.parse(data?.generatedAt || '') || Date.now()
   const cycles = liveInScope(data, present).map(job => ({ job, cycle: cycleOf(job, now) }))
   const newestRun = shown.reduce((best, r) => (typeof r.at_ts === 'number' && r.at_ts * 1000 > best
@@ -6185,6 +6236,7 @@ function Freshness({ t, data, shown, present, nameOf, onPick }) {
           className: 'pa-orb',
           size: 'sm',
           variant: 'ghost',
+          'aria-pressed': picked.length === 1 && picked[0] === entry.job.id,
           ...hoverTip(entry.cycle
             ? `${nameOf(entry.job.id)} — ${t('wd.frPick')}`
             : `${nameOf(entry.job.id)} — ${t('wd.frNoCycle')}`),
@@ -6451,7 +6503,7 @@ function FilterBar({ t, all, filters, setFilters, present, nameOf }) {
           jsx(Select, {
             id: 'jobs', labelText: t('wd.jobsSelect'), valueText: jobFace,
             count: picked.length > 1 ? picked.length : 0, options: jobOptions,
-            onPick: pickJob, multi: true, align: 'right'
+            onPick: pickJob, multi: true
           }, 'jobs'),
           jsx(SegmentedControl, {
             className: 'pa-seg',
@@ -7010,7 +7062,8 @@ function emptyTitle(t, filters) {
 }
 
 function emptyBody(t, filters) {
-  return filters.start || filters.end ? t('wd.emptyRangeBody') : t('wd.emptyMatchBody', filters.q)
+  if (filters.start || filters.end) return t('wd.emptyRangeBody')
+  return filters.q.trim() ? t('wd.emptyMatchBody', filters.q.trim()) : t('wd.emptyPickBody')
 }
 
 function JobRunsPage({ data, error, refresh, busy, winRef }) {
@@ -7186,6 +7239,7 @@ function JobRunsPage({ data, error, refresh, busy, winRef }) {
         shown,
         present,
         nameOf,
+        picked: filters.jobs,
         onPick: jid => setFilters(f => ({
           ...f,
           jobs: (f.jobs.length === 1 && f.jobs[0] === jid) ? [] : [jid]
@@ -7285,7 +7339,6 @@ function JobRunsPage({ data, error, refresh, busy, winRef }) {
       clearNote
         ? jsx('div', {
           className: 'pa-clear-note',
-          style: { padding: '2px 12px 8px', fontSize: TYPE.caption, color: 'var(--ui-text-secondary)' },
           children: clearNote
         }, 'note')
         : null,

@@ -3,6 +3,27 @@
 Notable changes to the Wiki Automation panel. The version is carried in three places — `plugin.yaml`,
 `dashboard/manifest.json` and the top heading below — and the static audit fails when they disagree.
 
+## 2.12.0
+
+Settings and every opened area reworked; nothing sits behind an opener any more.
+
+- Settings shows its three sections open on arrival: **Wiki folder**, **Scheduled jobs**, **Engine and
+  files**. The `Change wiki folder` / `Manage timetable` openers and the summary in front of them are gone.
+  Every row is one grid (label and note, value, actions on the right); each section head carries a status
+  chip, and a section that holds a fix carries the accent stripe on its left edge.
+- Inner surfaces no longer use the sidebar colour, which read as black holes in the dark theme: cards and
+  fields are transparent, menus and calendars use the host's elevated surface, code blocks its inline-code
+  tint. The static audit refuses the sidebar colour on an inner surface (two canaries).
+- Technical log: the job filter menu no longer opens off the left edge; tabs, menu options and the picked
+  job chip show the host's selected row; finding titles wrap instead of being cut and are not repeated;
+  the empty pane is centred; `Archive & clear` asks in a striped notice row; an empty result with no text
+  filter no longer reads `Nothing matches ""`.
+- One notice grammar everywhere: confirmations, refusals and errors are a 2 px stripe with readable text
+  (red stays on the stripe, not on the words). The schedule editor is a plain form under a hairline, its
+  preview a striped block; the reject form spans the row; the unreadable-draft notice sits on the content
+  edge. Two lower-case notes were rewritten in sentence case.
+- The detail pointer uses the stronger stroke so it reads as a pointer.
+
 ## 2.11.2
 
 Engine `d03321b` (unchanged). The panel takes Hermes' own look.
