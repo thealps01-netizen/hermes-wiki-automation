@@ -83,6 +83,49 @@ class EngineLifecycleTests(unittest.TestCase):
             with self.assertRaises((ValueError, module.LifecycleRefused)):
                 module.lifecycle_status(home, manifest)
 
+    def test_status_accepts_a_retired_role_whose_job_is_gone(self):
+        """An installation made before a role was retired still lists it; its deleted job is the wanted end state.
+
+        Why: after the Wiki Session Harvest job was deleted, every status read of the 2.13.2 installation
+        refused ("Owned native jobs did not pass engine readback"), so the panel could not offer the update
+        that retires the role. Only a missing job of a role the selected package retires is accepted.
+        """
+        module = self.lifecycle()
+        package = Path(__file__).resolve().parents[1]
+        manifest = json.loads((package / 'engine-release.json').read_bytes())
+        retired = module.retired_roles(package)
+        self.assertEqual(retired, ['session_harvest'])
+        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as temp:
+            home, wiki = Path(temp) / 'home', Path(temp) / 'wiki'
+            home.mkdir()
+            (home / 'config.yaml').write_bytes(b'{}')
+            (wiki / '.llm-wiki').mkdir(parents=True)
+            (wiki / '.llm-wiki/project.json').write_bytes(b'{"id":"retired-fixture"}')
+            (wiki / 'wiki').mkdir()
+            (wiki / 'wiki/index.md').write_bytes(b'# Fixture\n')
+            prepared = module.prepare_install(home, package, manifest, wiki, principal='owner-fixture')
+            module.apply_install(home, package, manifest, prepared['install_id'], prepared['plan_digest'], principal='owner-fixture')
+            record_path = home / 'state/wiki-automation/installations' / (prepared['install_id'] + '.json')
+            record = json.loads(record_path.read_bytes())
+            record['plan']['job_definitions']['session_harvest'] = {
+                'name': 'Wiki Session Harvest', 'kind': 'agent', 'launcher': 'palantir_wiki_session_harvest.py',
+                'default_schedule': '0 21 * * *'}
+            record_path.write_bytes(json.dumps(record).encode())
+            settings = Path(prepared['audit_dir']) / 'settings.json'
+            original = json.loads(settings.read_bytes())
+
+            def status(jobs, roles):
+                settings.write_bytes(json.dumps({**original, 'jobs': {**original['jobs'], **jobs}}).encode())
+                return module.lifecycle_status(home, manifest, roles)
+
+            with self.assertRaisesRegex(module.LifecycleRefused, 'did not pass engine readback'):
+                status({'session_harvest': 'deleted-job'}, ())
+            self.assertEqual(status({'session_harvest': 'deleted-job'}, retired)['state'], 'installed_paused')
+            with self.assertRaisesRegex(module.LifecycleRefused, 'did not pass engine readback'):
+                status({'session_harvest': original['jobs']['autocommit']}, retired)
+            with self.assertRaisesRegex(module.LifecycleRefused, 'did not pass engine readback'):
+                status({'session_harvest': 'deleted-job', 'watchdog': 'deleted-job'}, retired)
+
     def legacy_home(self, temp):
         """The real pre-panel shape: three script jobs and an enabled agent harvest job with a pre-run script
         (a role retired in 2.13.3, which the installation removes)."""

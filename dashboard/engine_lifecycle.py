@@ -254,7 +254,15 @@ def _release_hashes(code):
     return files
 
 
-def _readback(record):
+def retired_roles(package):
+    document = json.loads(confined(Path(package), 'engine/jobs.json').read_bytes())
+    retired = document.get('retired') or {}
+    if not isinstance(retired, dict):
+        raise LifecycleRefused('Selected engine job definitions are unsupported')
+    return sorted(retired)
+
+
+def _readback(record, retired=()):
     plan = record['plan']
     home, code, data = map(Path, (plan['hermes_home'], plan['engine_dir'], plan['audit_dir']))
     if json.loads(confined(home, 'state/wiki-automation/location.json').read_bytes()) != plan['location']:
@@ -279,11 +287,13 @@ def _readback(record):
         'import install; p=json.loads(sys.stdin.read()); home=Path(p["hermes_home"]); '
         'cfg=json.loads(Path(sys.argv[2]).read_bytes()); '
         'rows=install.existing_job_snapshot(home)["jobs"]; '
-        'jobs=[next((job for job in rows if job["id"]==(cfg.get("jobs") or {}).get(role)),None) '
-        'for role in p["job_definitions"]];\n'
-        'for role,job in zip(p["job_definitions"],jobs): install.verify_job_role(job,role,p);\n'
-        'print(json.dumps({"state":"installed_with_existing_jobs" if any(job.get("enabled",True) for job in jobs) else "installed_paused"}));\n')
-    verified = subprocess.run([sys.executable, '-B', '-c', inspect, str(code), str(settings)],
+        'retired=set(json.loads(sys.argv[3])); '
+        'pairs=[(role,next((job for job in rows if job["id"]==(cfg.get("jobs") or {}).get(role)),None)) '
+        'for role in p["job_definitions"]]; '
+        'pairs=[(role,job) for role,job in pairs if job is not None or role not in retired];\n'
+        'for role,job in pairs: install.verify_job_role(job,role,p);\n'
+        'print(json.dumps({"state":"installed_with_existing_jobs" if any(job.get("enabled",True) for role,job in pairs) else "installed_paused"}));\n')
+    verified = subprocess.run([sys.executable, '-B', '-c', inspect, str(code), str(settings), json.dumps(list(retired))],
         input=json.dumps(plan), capture_output=True, text=True, encoding='utf-8', timeout=30, cwd=home, env=env)
     if verified.returncode:
         raise LifecycleRefused('Owned native jobs did not pass engine readback; no repair was attempted')
@@ -458,7 +468,7 @@ def apply_recovery(home, package, manifest, install_id, plan_digest, review_id, 
         plan_digest, recovery_state=review['current_state_digest'])
 
 
-def lifecycle_status(home, manifest):
+def lifecycle_status(home, manifest, retired=()):
     home = Path(home)
     root = confined(home, 'state/wiki-automation/installations')
     home = home.resolve()
@@ -522,7 +532,7 @@ def lifecycle_status(home, manifest):
                 result.update(install_id=latest['install_id'], plan_digest=latest['plan']['digest'])
             return result
         if not unfinished:
-            active_state = _readback(active)
+            active_state = _readback(active, retired)
     state = active_state or (latest['state'] if latest and latest['state'] != 'stale' else 'missing')
     if latest and latest['state'] in ('applying', 'recovery_required'):
         state = latest['state']
@@ -593,7 +603,8 @@ def make_router(package_loader, manifest_loader):
         installation_principal(request)
         home = get_hermes_home().resolve()
         try:
-            return lifecycle_status(home, manifest_loader())
+            package = package_loader()
+            return lifecycle_status(home, manifest_loader(), retired_roles(package))
         except (OSError, ValueError, LifecycleRefused) as exc:
             return refused(exc)
 

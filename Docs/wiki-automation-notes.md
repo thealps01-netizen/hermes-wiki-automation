@@ -1210,6 +1210,12 @@ reported. `harvest_prompt.md` still names the retired job's tools: the merger cu
 at run time and tells the model those tool names do not apply, so editing it changes what the paid
 merge model reads and is left for a measured change.
 
+The engine card's status readback (2.13.4) skips a missing job of a role the selected package retires.
+An installation made before 2.13.3 lists `session_harvest` in its plan; once its job was deleted the
+readback refused on every read, and the panel offers "Preview update" only after a successful read, so
+the update that removes the role could not be started from the panel. A retired role's job that still
+exists is checked as before, and a missing job of an active role still refuses.
+
 The panel self-test's live check of the job roles now reads `engine/jobs.json` beside the panel. It
 read `~/.llmwiki-audit/jobs.json`, a data folder that on the owner's PC still held a September copy
 listing the retired role, so the check tested old roles instead of the shipped ones.

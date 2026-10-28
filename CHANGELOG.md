@@ -3,6 +3,18 @@
 Notable changes to the Wiki Automation panel. The version is carried in three places — `plugin.yaml`,
 `dashboard/manifest.json` and the top heading below — and the static audit fails when they disagree.
 
+## 2.13.4
+
+Engine `cae09c2` (unchanged; this PC still runs `fccb365` until the panel's engine update is applied).
+
+### Fixed
+* **The engine card could not read its state after the Wiki Session Harvest job was deleted.** The panel
+  checks every job the active installation's plan lists; an installation from before 2.13.3 still lists
+  the retired role, so its deleted job made every status read refuse ("Owned native jobs did not pass
+  engine readback") and the panel hid the update that retires the role. A role the selected package
+  lists as retired may now have no job; a job it still has is checked as before, and a missing job of
+  any other role still refuses.
+
 ## 2.13.3
 
 Engine `cae09c2` (was `18a99c9`; this PC still runs `fccb365` until the panel's engine update is applied).
